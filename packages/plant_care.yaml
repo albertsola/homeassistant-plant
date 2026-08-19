@@ -1,0 +1,250 @@
+################################################################################
+# plant_care.yaml — backend for plant-card
+#
+# Copy to <config>/packages/plant_care.yaml and enable packages in
+# configuration.yaml:
+#
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# To add a plant, duplicate every `monstera` block below and rename the slug.
+################################################################################
+
+input_datetime:
+  monstera_last_watered:
+    name: Monstera last watered
+    has_date: true
+    has_time: true
+    icon: mdi:watering-can
+
+  monstera_last_fertilized:
+    name: Monstera last fertilized
+    has_date: true
+    has_time: true
+    icon: mdi:leaf
+
+input_number:
+  monstera_water_interval:
+    name: Monstera watering interval
+    min: 1
+    max: 90
+    step: 1
+    unit_of_measurement: d
+    icon: mdi:calendar-clock
+    initial: 7
+
+  monstera_fertilize_interval:
+    name: Monstera fertilizing interval
+    min: 1
+    max: 365
+    step: 1
+    unit_of_measurement: d
+    icon: mdi:calendar-clock
+    initial: 30
+
+################################################################################
+# Scripts — reusable, target any plant's helper.
+################################################################################
+
+script:
+  plant_log_care:
+    alias: Plant · log care event
+    description: Stamp a plant care helper (watering, fertilizing, …) with now().
+    mode: parallel
+    icon: mdi:sprout
+    fields:
+      entity:
+        name: Care helper
+        description: The input_datetime to stamp.
+        required: true
+        selector:
+          entity:
+            filter:
+              domain: input_datetime
+    sequence:
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: "{{ entity }}"
+        data:
+          timestamp: "{{ now().timestamp() | int }}"
+
+################################################################################
+# Automation — the physical button.
+#
+# The button is an `event` entity: its STATE is the ISO timestamp of the last
+# press and its `event_type` attribute says which press it was. Trigger on the
+# state (it changes on every press) and read the type in the condition —
+# triggering on `attribute: event_type` would silently miss two identical
+# presses in a row.
+#
+# Alternative trigger blocks for other button types are at the bottom of this
+# file.
+################################################################################
+
+automation:
+  - id: plant_monstera_button
+    alias: Plant · Monstera · button press
+    description: ON press logs watering, OFF press logs fertilizing.
+    mode: queued
+    max: 10
+    trigger:
+      - platform: state
+        entity_id: event.monstera_button
+    condition:
+      - condition: template
+        value_template: >-
+          {{ trigger.from_state is not none
+             and trigger.to_state is not none
+             and trigger.to_state.state != trigger.from_state.state
+             and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+    action:
+      - variables:
+          press: "{{ trigger.to_state.attributes.event_type | default('') }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ press in ['on', 'turn_on', 'on_press', 'press_on'] }}"
+            sequence:
+              - service: script.plant_log_care
+                data:
+                  entity: input_datetime.monstera_last_watered
+              - service: logbook.log
+                data:
+                  name: Monstera
+                  message: was watered (button ON)
+                  entity_id: input_datetime.monstera_last_watered
+
+          - conditions:
+              - condition: template
+                value_template: "{{ press in ['off', 'turn_off', 'off_press', 'press_off'] }}"
+            sequence:
+              - service: script.plant_log_care
+                data:
+                  entity: input_datetime.monstera_last_fertilized
+              - service: logbook.log
+                data:
+                  name: Monstera
+                  message: was fertilized (button OFF)
+                  entity_id: input_datetime.monstera_last_fertilized
+
+################################################################################
+# Derived sensors — days elapsed, and whether care is due.
+# Templates using now() re-evaluate every minute, so these stay fresh.
+################################################################################
+
+template:
+  - sensor:
+      - name: Monstera days since watered
+        unique_id: monstera_days_since_watered
+        unit_of_measurement: d
+        state_class: measurement
+        icon: mdi:watering-can-outline
+        availability: >-
+          {{ has_value('input_datetime.monstera_last_watered') }}
+        state: >-
+          {% set ts = state_attr('input_datetime.monstera_last_watered', 'timestamp') %}
+          {{ ((now().timestamp() - ts) / 86400) | round(1) if ts is not none else 'unknown' }}
+
+      - name: Monstera days since fertilized
+        unique_id: monstera_days_since_fertilized
+        unit_of_measurement: d
+        state_class: measurement
+        icon: mdi:leaf
+        availability: >-
+          {{ has_value('input_datetime.monstera_last_fertilized') }}
+        state: >-
+          {% set ts = state_attr('input_datetime.monstera_last_fertilized', 'timestamp') %}
+          {{ ((now().timestamp() - ts) / 86400) | round(1) if ts is not none else 'unknown' }}
+
+  - binary_sensor:
+      - name: Monstera needs water
+        unique_id: monstera_needs_water
+        device_class: problem
+        icon: mdi:water-alert
+        state: >-
+          {{ states('sensor.monstera_days_since_watered') | float(0)
+             >= states('input_number.monstera_water_interval') | float(7) }}
+
+      - name: Monstera needs fertilizer
+        unique_id: monstera_needs_fertilizer
+        device_class: problem
+        icon: mdi:leaf-off
+        state: >-
+          {{ states('sensor.monstera_days_since_fertilized') | float(0)
+             >= states('input_number.monstera_fertilize_interval') | float(30) }}
+
+################################################################################
+# Optional: nag once a day when something is overdue.
+# Move this into the `automation:` block above to enable it.
+#
+#  - id: plant_monstera_overdue_notify
+#    alias: Plant · Monstera · overdue reminder
+#    trigger:
+#      - platform: time
+#        at: "09:00:00"
+#    condition:
+#      - condition: or
+#        conditions:
+#          - condition: state
+#            entity_id: binary_sensor.monstera_needs_water
+#            state: "on"
+#          - condition: state
+#            entity_id: binary_sensor.monstera_needs_fertilizer
+#            state: "on"
+#    action:
+#      - service: notify.persistent_notification
+#        data:
+#          title: Plant care
+#          message: >-
+#            Monstera needs
+#            {{ ['water' if is_state('binary_sensor.monstera_needs_water', 'on') else none,
+#                'fertilizer' if is_state('binary_sensor.monstera_needs_fertilizer', 'on') else none]
+#               | reject('none') | join(' and ') }}.
+#
+################################################################################
+# Alternative button trigger blocks — swap into the automation above.
+#
+# 1. Zigbee2MQTT (payload like {"action": "on_press"}):
+#
+#    trigger:
+#      - platform: mqtt
+#        topic: zigbee2mqtt/monstera_button
+#    condition: []
+#    action:
+#      - variables:
+#          press: "{{ trigger.payload_json.action | default('') }}"
+#
+# 2. Device trigger (from the UI editor — copy the generated YAML):
+#
+#    trigger:
+#      - platform: device
+#        domain: mqtt
+#        device_id: <your device id>
+#        type: action
+#        subtype: on_press
+#        id: water
+#      - platform: device
+#        domain: mqtt
+#        device_id: <your device id>
+#        type: action
+#        subtype: off_press
+#        id: fertilize
+#    action:
+#      - variables:
+#          press: "{{ 'on' if trigger.id == 'water' else 'off' }}"
+#
+# 3. A plain switch / input_boolean toggled on and off:
+#
+#    trigger:
+#      - platform: state
+#        entity_id: switch.monstera_button
+#        to: "on"
+#        id: water
+#      - platform: state
+#        entity_id: switch.monstera_button
+#        to: "off"
+#        id: fertilize
+#    action:
+#      - variables:
+#          press: "{{ 'on' if trigger.id == 'water' else 'off' }}"
+################################################################################
