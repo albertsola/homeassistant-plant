@@ -104,6 +104,8 @@ class PlantCard extends HTMLElement {
       fertilize_interval: 30,
       water_label: "Watered",
       fertilize_label: "Fertilized",
+      water_noun: "water",
+      fertilize_noun: "fertilizer",
       confirm: true,
       tap_to_log: true,
       show_progress: true,
@@ -357,12 +359,14 @@ class PlantCard extends HTMLElement {
         entity: cfg.last_watered,
         interval: cfg.water_interval,
         label: cfg.water_label,
+        noun: cfg.water_noun,
       },
       {
         kind: "fertilize",
         entity: cfg.last_fertilized,
         interval: cfg.fertilize_interval,
         label: cfg.fertilize_label,
+        noun: cfg.fertilize_noun,
       },
     ];
 
@@ -399,7 +403,7 @@ class PlantCard extends HTMLElement {
         el.bar.style.display = "none";
       }
 
-      if (status === "overdue") overdue.push(item.label.toLowerCase());
+      if (status === "overdue") overdue.push(item.noun);
     }
 
     this._el.subtitle.textContent = overdue.length

@@ -5,17 +5,7 @@ watered, and when was it last fertilized** — logged by a single physical
 button (ON = water, OFF = fertilizer) — plus the plant's temperature, humidity
 and light sensors.
 
-```
-┌──────────────────────────────┐
-│ 🪴  Monstera                 │
-│     Needs water              │
-├──────────────────────────────┤
-│ 💧 Watered      2 days ago   │
-│ 🌱 Fertilized  18 days ago   │
-├──────────────────────────────┤
-│ 🌡 21.4 °C  💧 48 %  ☀ 1240 lx │
-└──────────────────────────────┘
-```
+<img src="images/card.svg" alt="plant-card showing a Monstera watered 5 days ago and fertilized 34 days ago, with temperature, humidity and light sensors" width="460">
 
 The card is plain JavaScript with **no build step** — `dist/plant-card.js` is
 the shipped file.
@@ -104,6 +94,8 @@ illuminance: sensor.monstera_illuminance
 | `moisture` | entity | – | Soil moisture sensor shown in the bottom row. |
 | `water_label` | string | `Watered` | Row label. |
 | `fertilize_label` | string | `Fertilized` | Row label. |
+| `water_noun` | string | `water` | Used in the "Needs …" subtitle. |
+| `fertilize_noun` | string | `fertilizer` | Used in the "Needs …" subtitle. |
 | `tap_to_log` | bool | `true` | Tapping a care row logs that care event. |
 | `confirm` | bool | `true` | Require a second tap within 4 s before logging. |
 | `show_progress` | bool | `true` | Thin bar showing elapsed time towards the interval. |
