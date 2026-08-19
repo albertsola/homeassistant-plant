@@ -1,20 +1,18 @@
-# Example Lovelace configuration for plant-card.
+# With the Plant Care integration installed, one line is enough — the card
+# reads the plant's name, timestamps, intervals and sensors from the summary
+# entity the integration creates.
 
 type: custom:plant-card
-name: Monstera
-icon: mdi:sprout
-image: /local/plants/monstera.jpg        # optional, replaces the icon
+entity: sensor.monstera_plant
 
-last_watered: input_datetime.monstera_last_watered
-last_fertilized: input_datetime.monstera_last_fertilized
-
-water_interval: 7                         # days until watering is "overdue"
-fertilize_interval: 30
-
-temperature: sensor.monstera_temperature  # every sensor below is optional
-humidity: sensor.monstera_humidity
-illuminance: sensor.monstera_illuminance
-moisture: sensor.monstera_soil_moisture
+---
+# Anything you set explicitly still wins over the integration's values.
+type: custom:plant-card
+entity: sensor.monstera_plant
+name: Monstera deliciosa
+image: /local/plants/monstera.jpg
+water_interval: 5
+confirm: false
 
 ---
 # Several plants side by side.
@@ -23,16 +21,19 @@ columns: 2
 square: false
 cards:
   - type: custom:plant-card
-    name: Monstera
-    last_watered: input_datetime.monstera_last_watered
-    last_fertilized: input_datetime.monstera_last_fertilized
-    temperature: sensor.monstera_temperature
-    humidity: sensor.monstera_humidity
-    illuminance: sensor.monstera_illuminance
+    entity: sensor.monstera_plant
   - type: custom:plant-card
-    name: Ficus
-    icon: mdi:tree
-    last_watered: input_datetime.ficus_last_watered
-    last_fertilized: input_datetime.ficus_last_fertilized
-    water_interval: 10
-    fertilize_interval: 45
+    entity: sensor.ficus_plant
+
+---
+# Without the integration: point the card at your own helpers and sensors.
+type: custom:plant-card
+name: Monstera
+last_watered: input_datetime.monstera_last_watered
+last_fertilized: input_datetime.monstera_last_fertilized
+water_interval: 7
+fertilize_interval: 30
+temperature: sensor.monstera_temperature
+humidity: sensor.monstera_humidity
+illuminance: sensor.monstera_illuminance
+moisture: sensor.monstera_soil_moisture

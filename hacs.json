@@ -1,6 +1,5 @@
 {
-  "name": "Plant Card",
+  "name": "Plant Care",
   "render_readme": true,
-  "filename": "plant-card.js",
-  "homeassistant": "2023.4.0"
+  "homeassistant": "2025.2.0"
 }

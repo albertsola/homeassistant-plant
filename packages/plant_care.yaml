@@ -1,5 +1,9 @@
 ################################################################################
-# plant_care.yaml — backend for plant-card
+# plant_care.yaml — YAML-only alternative to the Plant Care integration.
+#
+# You do NOT need this file if you installed the integration: it creates the
+# same entities from a UI form, with no helpers or automations to maintain.
+# This exists for setups that would rather not run a custom integration.
 #
 # Copy to <config>/packages/plant_care.yaml and enable packages in
 # configuration.yaml:

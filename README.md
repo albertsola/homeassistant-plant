@@ -1,93 +1,64 @@
-# plant-card
+# Plant Care
 
-A Home Assistant Lovelace card for plant care: **when was this plant last
+A Home Assistant integration for plant care: **when was this plant last
 watered, and when was it last fertilized** — logged by a single physical
-button (ON = water, OFF = fertilizer) — plus the plant's temperature, humidity
-and light sensors.
+button (ON = water, OFF = fertilizer) — plus its temperature, humidity and
+light sensors, shown on a bundled Lovelace card.
 
 <img src="images/card.svg" alt="plant-card showing a Monstera watered 5 days ago and fertilized 34 days ago, with temperature, humidity and light sensors" width="460">
 
-The card is plain JavaScript with **no build step** — `dist/plant-card.js` is
-the shipped file.
-
-## What's in here
-
-| Path | What it is |
-| --- | --- |
-| `dist/plant-card.js` | The custom Lovelace card. |
-| `packages/plant_care.yaml` | Helpers, button automation, and derived sensors. |
-| `lovelace-example.yaml` | Card configuration examples. |
+One HACS install, one config-flow form per plant. No YAML, no helpers to
+create, no Lovelace resource to register.
 
 ## How it works
 
-1. A **physical button** (Zigbee/Z-Wave/BLE) exposed as an `event` entity fires
-   an `on` or `off` press.
-2. An **automation** stamps the matching `input_datetime` helper with `now()` —
-   `on` → last watered, `off` → last fertilized.
-3. The **card** reads those helpers, renders them as relative time
-   ("2 days ago"), and colours each row green → amber → red as the next care
-   date approaches.
-4. Tapping a row on the card logs care manually (confirm-on-second-tap), so you
-   don't need the button to be in reach.
+1. A **physical button** (Zigbee/Z-Wave/BLE) exposed as an `event` entity —
+   or a switch, or a helper — reports a press.
+2. The integration **subscribes to it directly** and stamps the matching
+   timestamp: ON → last watered, OFF → last fertilized. No automation to
+   write.
+3. The **card** shows each as relative time, coloured green → amber → red as
+   the next care date approaches.
+4. Tapping a row on the card logs care manually (confirm-on-second-tap), so
+   the button doesn't have to be in reach. Setting the `datetime` entity by
+   hand backdates care you forgot to log.
 
 ## Install
 
-### 1. Backend
+**HACS** — ⋮ → *Custom repositories* → add
+`https://github.com/albertsola/homeassistant-plant` with type
+**Integration** → install **Plant Care** → restart Home Assistant.
 
-Enable packages in `configuration.yaml`:
+**Manual** — copy `custom_components/plant_care/` into your `<config>/custom_components/`
+and restart.
 
-```yaml
-homeassistant:
-  packages: !include_dir_named packages
-```
+Then **Settings → Devices & Services → Add Integration → Plant Care**.
 
-Copy `packages/plant_care.yaml` into `<config>/packages/`, then edit it:
+The form asks for the plant's name and, optionally, its button, its sensors
+and the care intervals. Everything except the name can be changed later from
+the integration's *Configure* link. Add one entry per plant.
 
-- replace `event.monstera_button` with your button entity,
-- rename the `monstera` slug throughout for your own plant,
-- duplicate every `monstera` block for each additional plant.
+The card is served by the integration and registered with the frontend
+automatically — there is no Lovelace resource to add.
 
-Restart Home Assistant (new `input_datetime` / `input_number` helpers need a
-restart; later automation edits only need a reload).
-
-### 2. Card
-
-**HACS** — in HACS, open the ⋮ menu → *Custom repositories*, add
-`https://github.com/albertsola/homeassistant-plant` with type **Dashboard**,
-then install "Plant Card" from the list. HACS registers the Lovelace resource
-for you; a restart is not needed for the card, only for the helpers below.
-
-HACS installs the card only — `packages/plant_care.yaml` still has to be copied
-into your config by hand.
-
-**Manual** — copy `dist/plant-card.js` to `<config>/www/plant-card.js`, then
-add the resource under *Settings → Dashboards → ⋮ → Resources*:
-
-| Field | Value |
-| --- | --- |
-| URL | `/local/plant-card.js` |
-| Type | JavaScript module |
-
-Hard-refresh the browser afterwards (`Ctrl`/`Cmd` + `Shift` + `R`).
-
-### 3. Add the card
+## The card
 
 ```yaml
 type: custom:plant-card
-name: Monstera
-last_watered: input_datetime.monstera_last_watered
-last_fertilized: input_datetime.monstera_last_fertilized
-temperature: sensor.monstera_temperature
-humidity: sensor.monstera_humidity
-illuminance: sensor.monstera_illuminance
+entity: sensor.monstera_plant
 ```
 
-## Card options
+That's the whole configuration. The summary entity carries the plant's name,
+timestamps, intervals and sensor entity IDs, and the card reads them from
+there.
+
+Anything set explicitly still wins:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `last_watered` | entity | **required** | `input_datetime` (or timestamp sensor) holding the last watering. |
-| `last_fertilized` | entity | – | Same for fertilizer. Omitted → the row is hidden. |
+| `entity` | entity | – | A Plant Care summary entity. Supplies every option below. |
+| `last_watered` | entity | – | A `datetime` or `input_datetime` entity. Required if `entity` is not set. |
+| `last_fertilized` | entity | – | Same for fertilizer. Absent → the row is hidden. |
 | `name` | string | `Plant` | Card title. |
 | `icon` | icon | `mdi:flower` | Avatar icon. |
 | `image` | url | – | Photo instead of the icon, e.g. `/local/plants/monstera.jpg`. |
@@ -104,43 +75,82 @@ illuminance: sensor.monstera_illuminance
 | `tap_to_log` | bool | `true` | Tapping a care row logs that care event. |
 | `confirm` | bool | `true` | Require a second tap within 4 s before logging. |
 | `show_progress` | bool | `true` | Thin bar showing elapsed time towards the interval. |
-| `water_script` | `script.x` | – | Call this instead of writing the helper directly. |
+| `water_script` | `script.x` | – | Call this instead of writing the timestamp directly. |
 | `fertilize_script` | `script.x` | – | Same, for fertilizer. |
 
 Relative times are localized with the frontend's language. Tapping a sensor
-opens its more-info dialog.
+opens its more-info dialog. More examples in `lovelace-example.yaml`.
 
-## Entities the package creates
+## Entities
+
+Each plant becomes one device:
 
 | Entity | Purpose |
 | --- | --- |
-| `input_datetime.monstera_last_watered` | Timestamp of the last watering. |
-| `input_datetime.monstera_last_fertilized` | Timestamp of the last fertilizing. |
-| `input_number.monstera_water_interval` | Watering interval, adjustable from the UI. |
-| `input_number.monstera_fertilize_interval` | Fertilizing interval. |
-| `sensor.monstera_days_since_watered` | Days elapsed — for automations and history graphs. |
-| `sensor.monstera_days_since_fertilized` | Days elapsed. |
-| `binary_sensor.monstera_needs_water` | `on` when past the interval. |
-| `binary_sensor.monstera_needs_fertilizer` | `on` when past the interval. |
-| `script.plant_log_care` | Stamps any care helper with `now()`. |
+| `sensor.<plant>_plant` | Summary: `ok` / `needs_water` / `needs_fertilizer` / `needs_both`, with everything the card needs in its attributes. |
+| `datetime.<plant>_last_watered` | When it was last watered. Settable, so care can be backdated. |
+| `datetime.<plant>_last_fertilized` | When it was last fertilized. |
+| `sensor.<plant>_days_since_watered` | Days elapsed — graphable, usable in automations. |
+| `sensor.<plant>_days_since_fertilized` | Days elapsed. |
+| `binary_sensor.<plant>_needs_water` | `on` when past the interval. |
+| `binary_sensor.<plant>_needs_fertilizer` | `on` when past the interval. |
+| `number.<plant>_watering_interval` | Interval in days, adjustable from the UI. |
+| `number.<plant>_fertilizing_interval` | Interval in days. |
+| `button.<plant>_log_watering` | Log watering now, from the UI or an automation. |
+| `button.<plant>_log_fertilizing` | Log fertilizing now. |
 
-The `input_number` intervals drive the binary sensors and the optional
-reminder; the card's own colour thresholds come from its YAML
-`water_interval` / `fertilize_interval`.
+Care history is persisted in HA's storage, so it survives restarts and
+reloads.
 
-## Other button types
+## Buttons
 
-`packages/plant_care.yaml` ends with drop-in trigger blocks for Zigbee2MQTT
-payloads, UI device triggers, and a plain switch / `input_boolean`.
+Any `event`, `switch`, `binary_sensor` or `input_boolean` entity works. The
+setup form asks which value means watering (default `on`) and which means
+fertilizing (default `off`). Common variants — `turn_on`, `on_press`,
+`press_on`, `single`, and their off/double counterparts — are matched
+automatically, so most remotes work untouched. For anything else, type the
+exact event type, e.g. `1_single`.
 
-One gotcha the package already handles: on an `event` entity, pressing the same
-button twice in a row does **not** change the `event_type` attribute — only the
-entity's state (the event timestamp) changes. Triggering on
-`attribute: event_type` therefore silently drops repeated presses, so the
-automation triggers on the state and reads the type in a condition.
+One subtlety this handles for you: on an `event` entity, pressing the same
+button twice does **not** change the `event_type` attribute — only the
+entity's state (the press timestamp) changes. An automation triggering on
+`attribute: event_type` silently drops repeat presses. The integration
+watches the state and reads the type from it, so watering twice in a week is
+recorded twice.
 
 ## Reminders
 
-A daily "your plant is thirsty" notification is included, commented out, at the
-bottom of `packages/plant_care.yaml` — move it into the `automation:` block to
-enable it.
+`binary_sensor.<plant>_needs_water` is a `problem` sensor, so a reminder is a
+two-line automation:
+
+```yaml
+trigger:
+  - platform: state
+    entity_id: binary_sensor.monstera_needs_water
+    to: "on"
+    for: "01:00:00"
+action:
+  - service: notify.persistent_notification
+    data:
+      message: Monstera needs water.
+```
+
+## Without the integration
+
+`packages/plant_care.yaml` is the original YAML-only build — `input_datetime`
+helpers, a button automation and template sensors — for anyone who would
+rather not install a custom integration. It needs the card installed
+manually: copy `custom_components/plant_care/www/plant-card.js` to
+`<config>/www/` and add `/local/plant-card.js` as a JavaScript module
+resource. The card's explicit options (`last_watered`, `temperature`, …)
+exist for exactly this case.
+
+## Development
+
+```bash
+pip install -r requirements-test.txt
+pytest
+```
+
+The suite boots Home Assistant, sets up a config entry, and drives real
+button presses through it — including the repeat-press case above.

@@ -1,0 +1,82 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a plant",
+        "description": "Everything here is optional except the name — you can add the button and sensors later.",
+        "data": {
+          "plant_name": "Plant name",
+          "button_entity": "Care button",
+          "water_event": "Button value that logs watering",
+          "fertilize_event": "Button value that logs fertilizing",
+          "temperature_entity": "Temperature sensor",
+          "humidity_entity": "Humidity sensor",
+          "illuminance_entity": "Light sensor",
+          "moisture_entity": "Soil moisture sensor",
+          "water_interval": "Watering interval",
+          "fertilize_interval": "Fertilizing interval"
+        },
+        "data_description": {
+          "button_entity": "A button, switch or helper. Pressing it logs care against this plant.",
+          "water_event": "For an event entity this is the event type, for a switch it is the state. Common alternatives such as turn_on and on_press are matched automatically.",
+          "water_interval": "Days before watering counts as overdue. Adjustable afterwards from the plant's Watering interval entity.",
+          "fertilize_interval": "Days before fertilizing counts as overdue."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "A plant with that name is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Plant settings",
+        "description": "Care intervals are changed on the plant's own interval entities, not here.",
+        "data": {
+          "button_entity": "Care button",
+          "water_event": "Button value that logs watering",
+          "fertilize_event": "Button value that logs fertilizing",
+          "temperature_entity": "Temperature sensor",
+          "humidity_entity": "Humidity sensor",
+          "illuminance_entity": "Light sensor",
+          "moisture_entity": "Soil moisture sensor"
+        },
+        "data_description": {
+          "button_entity": "A button, switch or helper. Pressing it logs care against this plant."
+        }
+      }
+    }
+  },
+  "entity": {
+    "datetime": {
+      "last_watered": { "name": "Last watered" },
+      "last_fertilized": { "name": "Last fertilized" }
+    },
+    "sensor": {
+      "days_since_watered": { "name": "Days since watered" },
+      "days_since_fertilized": { "name": "Days since fertilized" },
+      "plant": {
+        "name": "Plant",
+        "state": {
+          "ok": "OK",
+          "needs_water": "Needs water",
+          "needs_fertilizer": "Needs fertilizer",
+          "needs_both": "Needs water and fertilizer"
+        }
+      }
+    },
+    "binary_sensor": {
+      "needs_water": { "name": "Needs water" },
+      "needs_fertilizer": { "name": "Needs fertilizer" }
+    },
+    "number": {
+      "water_interval": { "name": "Watering interval" },
+      "fertilize_interval": { "name": "Fertilizing interval" }
+    },
+    "button": {
+      "log_watering": { "name": "Log watering" },
+      "log_fertilizing": { "name": "Log fertilizing" }
+    }
+  }
+}

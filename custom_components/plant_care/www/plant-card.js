@@ -5,11 +5,16 @@
  * plus a progress bar towards the next due date), and an optional row of
  * environment sensors (temperature, humidity, illuminance, soil moisture).
  *
+ * Two ways to configure it:
+ *   entity: sensor.monstera_plant   — a Plant Care summary entity, which
+ *                                     carries every other setting already
+ *   last_watered: input_datetime.…  — spell each entity out yourself
+ *
  * No build step: this file is the distributable. Plain custom element, no
  * framework, so it keeps working across Home Assistant frontend releases.
  */
 
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.1.0";
 
 console.info(
   `%c PLANT-CARD %c ${CARD_VERSION} `,
@@ -18,6 +23,33 @@ console.info(
 );
 
 const UNAVAILABLE = ["unknown", "unavailable", "none", ""];
+
+const DEFAULTS = {
+  name: "Plant",
+  icon: "mdi:flower",
+  water_interval: 7,
+  fertilize_interval: 30,
+  water_label: "Watered",
+  fertilize_label: "Fertilized",
+  water_noun: "water",
+  fertilize_noun: "fertilizer",
+  confirm: true,
+  tap_to_log: true,
+  show_progress: true,
+};
+
+/** Map a Plant Care summary entity's attributes onto card config. */
+const HUB_KEYS = {
+  name: "plant_name",
+  last_watered: "last_watered_entity",
+  last_fertilized: "last_fertilized_entity",
+  water_interval: "water_interval",
+  fertilize_interval: "fertilize_interval",
+  temperature: "temperature_entity",
+  humidity: "humidity_entity",
+  illuminance: "illuminance_entity",
+  moisture: "moisture_entity",
+};
 
 const SENSOR_ROW = [
   { key: "temperature", icon: "mdi:thermometer" },
@@ -40,6 +72,13 @@ function stampOf(stateObj) {
 
   // sensor with device_class: timestamp (ISO 8601), or a plain "Y-m-d H:i:s".
   const parsed = Date.parse(state.includes("T") ? state : state.replace(" ", "T"));
+  return Number.isNaN(parsed) ? null : parsed / 1000;
+}
+
+/** Unix seconds from a bare ISO string. */
+function isoStamp(iso) {
+  if (!iso) return null;
+  const parsed = Date.parse(iso);
   return Number.isNaN(parsed) ? null : parsed / 1000;
 }
 
@@ -82,39 +121,59 @@ function fireEvent(node, type, detail = {}) {
 }
 
 class PlantCard extends HTMLElement {
-  static getStubConfig() {
+  static getStubConfig(hass) {
+    const summary = Object.keys(hass ? hass.states : {}).find(
+      (id) => id.startsWith("sensor.") && hass.states[id].attributes.last_watered_entity
+    );
+    if (summary) return { type: "custom:plant-card", entity: summary };
     return {
       type: "custom:plant-card",
       name: "Plant",
       last_watered: "input_datetime.plant_last_watered",
       last_fertilized: "input_datetime.plant_last_fertilized",
-      water_interval: 7,
-      fertilize_interval: 30,
     };
   }
 
   setConfig(config) {
-    if (!config || !config.last_watered) {
-      throw new Error("plant-card: `last_watered` is required");
+    if (!config || (!config.entity && !config.last_watered)) {
+      throw new Error(
+        "plant-card: set `entity` to a Plant Care plant sensor, or `last_watered` to a datetime entity"
+      );
     }
-    this._config = {
-      name: "Plant",
-      icon: "mdi:flower",
-      water_interval: 7,
-      fertilize_interval: 30,
-      water_label: "Watered",
-      fertilize_label: "Fertilized",
-      water_noun: "water",
-      fertilize_noun: "fertilizer",
-      confirm: true,
-      tap_to_log: true,
-      show_progress: true,
-      ...config,
-    };
+    // Kept raw: defaults are applied after the summary entity is read, so a
+    // value from the integration still beats a default but never beats YAML.
+    this._userConfig = { ...config };
+    this._config = { ...DEFAULTS, ...config };
     // Force a rebuild so a config change can never leave stale nodes behind.
     this._built = false;
     this._armed = null;
     if (this._hass) this._update();
+  }
+
+  /** Merge defaults, the summary entity's attributes, and explicit YAML. */
+  _resolve() {
+    const user = this._userConfig;
+    const fromHub = {};
+
+    if (user.entity) {
+      const stateObj = this._hass.states[user.entity];
+      const attrs = (stateObj && stateObj.attributes) || {};
+      for (const [key, attr] of Object.entries(HUB_KEYS)) {
+        if (attrs[attr] !== undefined && attrs[attr] !== null) {
+          fromHub[key] = attrs[attr];
+        }
+      }
+      // Fall back to the raw timestamps if the datetime entities are hidden
+      // or not registered yet.
+      this._hubStamps = {
+        water: attrs.last_watered || null,
+        fertilize: attrs.last_fertilized || null,
+      };
+    } else {
+      this._hubStamps = null;
+    }
+
+    return { ...DEFAULTS, ...fromHub, ...user };
   }
 
   set hass(hass) {
@@ -126,17 +185,30 @@ class PlantCard extends HTMLElement {
     return this._config && this._sensorEntities().length ? 3 : 2;
   }
 
-  _sensorEntities() {
-    if (!this._config) return [];
-    return SENSOR_ROW.filter((s) => this._config[s.key]).map((s) => ({
+  _sensorEntities(config) {
+    const cfg = config || this._config;
+    if (!cfg) return [];
+    return SENSOR_ROW.filter((s) => cfg[s.key]).map((s) => ({
       ...s,
-      entity: this._config[s.key],
+      entity: cfg[s.key],
     }));
   }
 
   _update() {
-    if (!this._hass || !this._config) return;
-    if (!this._built) this._build();
+    if (!this._hass || !this._userConfig) return;
+
+    const resolved = this._resolve();
+    this._config = resolved;
+
+    // The summary entity can gain or lose sensors while the card is live, so
+    // rebuild when the sensor row's shape actually changes.
+    const key = this._sensorEntities(resolved)
+      .map((s) => s.entity)
+      .join(",");
+    if (!this._built || key !== this._sensorKey) {
+      this._sensorKey = key;
+      this._build();
+    }
     this._paint();
   }
 
@@ -293,7 +365,7 @@ class PlantCard extends HTMLElement {
       sensors: $("sensors"),
     };
 
-    if (!cfg.last_fertilized) {
+    if (!cfg.last_fertilized && !(this._hubStamps && this._hubStamps.fertilize)) {
       this._el.rows.fertilize.row.style.display = "none";
     }
 
@@ -374,17 +446,18 @@ class PlantCard extends HTMLElement {
 
     for (const item of care) {
       const el = this._el.rows[item.kind];
-      if (!item.entity) continue;
+      const fallbackIso = this._hubStamps ? this._hubStamps[item.kind] : null;
+      if (!item.entity && !fallbackIso) continue;
 
-      const stateObj = hass.states[item.entity];
-      const stamp = stampOf(stateObj);
+      const stateObj = item.entity ? hass.states[item.entity] : undefined;
+      const stamp = stampOf(stateObj) ?? isoStamp(fallbackIso);
       const elapsed = daysSince(stamp);
       const status = statusOf(elapsed, item.interval);
 
       el.row.classList.remove("ok", "soon", "overdue");
       el.row.classList.add(status);
 
-      if (!stateObj) {
+      if (item.entity && !stateObj && !fallbackIso) {
         el.label.textContent = item.label;
         el.value.textContent = "entity not found";
         el.bar.style.display = "none";
@@ -468,18 +541,26 @@ class PlantCard extends HTMLElement {
       return;
     }
 
-    if (!entity.startsWith("input_datetime.")) {
-      fireEvent(this, "hass-notification", {
-        message:
-          `plant-card: cannot log to ${entity} — tapping only writes to ` +
-          `input_datetime entities. Set water_script / fertilize_script instead.`,
+    if (entity.startsWith("datetime.")) {
+      this._hass.callService("datetime", "set_value", {
+        entity_id: entity,
+        datetime: new Date().toISOString(),
       });
       return;
     }
 
-    this._hass.callService("input_datetime", "set_datetime", {
-      entity_id: entity,
-      timestamp: Math.floor(Date.now() / 1000),
+    if (entity.startsWith("input_datetime.")) {
+      this._hass.callService("input_datetime", "set_datetime", {
+        entity_id: entity,
+        timestamp: Math.floor(Date.now() / 1000),
+      });
+      return;
+    }
+
+    fireEvent(this, "hass-notification", {
+      message:
+        `plant-card: cannot log to ${entity} — tapping writes to datetime or ` +
+        `input_datetime entities. Set water_script / fertilize_script instead.`,
     });
   }
 }
