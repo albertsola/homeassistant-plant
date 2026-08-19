@@ -492,5 +492,5 @@ window.customCards.push({
   name: "Plant Card",
   description: "Track when a plant was last watered and fertilized, with its environment sensors.",
   preview: false,
-  documentationURL: "https://github.com/asola/homeassistant-plant",
+  documentationURL: "https://github.com/albertsola/homeassistant-plant",
 });

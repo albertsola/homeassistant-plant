@@ -52,8 +52,13 @@ restart; later automation edits only need a reload).
 
 ### 2. Card
 
-**HACS** — add this repository as a custom repository of type *Dashboard*,
-install it, and HACS registers the resource for you.
+**HACS** — in HACS, open the ⋮ menu → *Custom repositories*, add
+`https://github.com/albertsola/homeassistant-plant` with type **Dashboard**,
+then install "Plant Card" from the list. HACS registers the Lovelace resource
+for you; a restart is not needed for the card, only for the helpers below.
+
+HACS installs the card only — `packages/plant_care.yaml` still has to be copied
+into your config by hand.
 
 **Manual** — copy `dist/plant-card.js` to `<config>/www/plant-card.js`, then
 add the resource under *Settings → Dashboards → ⋮ → Resources*:
