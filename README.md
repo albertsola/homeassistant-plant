@@ -51,8 +51,9 @@ but it loads the file a second time for nothing.
 
 ## The card
 
-Add it the normal way: **Add card → Plant Card** (in the *Custom cards*
-section). It appears in the picker with a live preview and has a visual
+Add it the normal way: **Add card → Plant Card**, at the bottom of the dialog
+under **Community cards** (that is what Home Assistant calls the section
+holding cards it did not ship). It appears in the picker with a live preview and has a visual
 editor, so no YAML is needed. Note that the card only shows up once at least
 one plant has been added, because that is what starts the integration. In YAML it
 is one line:
@@ -136,9 +137,11 @@ Work through these in order — the first two catch almost every case.
    repository added with the old **Dashboard** category, which drops the files
    in the wrong place. Remove it from HACS and re-add it as type
    **Integration**.
-5. **Look in the right place in the picker.** Custom cards sit in a separate
-   collapsible *Custom cards* section at the bottom of the *Add card* dialog.
-   Searching `plant` finds it wherever it is.
+5. **Look in the right place in the picker.** Cards from outside Home
+   Assistant sit in a separate collapsible **Community cards** section at the
+   bottom of the *Add card* dialog. Searching `plant` finds it wherever it is.
+   If that section is missing entirely, no custom card module has loaded at
+   all — go back to step 1.
 6. **Check the browser console** for errors mentioning `plant-card`. A
    duplicate registration from an old manual resource used to break this;
    remove `/local/plant-card.js` from *Settings → Dashboards → Resources* if
