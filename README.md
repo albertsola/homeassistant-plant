@@ -39,9 +39,21 @@ and the care intervals. Everything except the name can be changed later from
 the integration's *Configure* link. Add one entry per plant.
 
 The card is served by the integration and registered with the frontend
-automatically — there is no Lovelace resource to add.
+automatically — there is no Lovelace resource to add. Because it is loaded as
+a frontend module rather than a dashboard resource, it does **not** appear
+under *Settings → Dashboards → Resources*; that list is only for manually
+added resources. It still shows up in the card picker, which is the list that
+matters when building a dashboard.
+
+If you previously added `/local/plant-card.js` as a resource by hand, remove
+it. Leaving it is harmless — the card guards against being registered twice —
+but it loads the file a second time for nothing.
 
 ## The card
+
+Add it the normal way: **Add card → Plant Card**. It appears in the picker
+with a live preview and has a visual editor, so no YAML is needed. In YAML it
+is one line:
 
 ```yaml
 type: custom:plant-card

@@ -14,7 +14,7 @@
  * framework, so it keeps working across Home Assistant frontend releases.
  */
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.2.0";
 
 console.info(
   `%c PLANT-CARD %c ${CARD_VERSION} `,
@@ -121,6 +121,11 @@ function fireEvent(node, type, detail = {}) {
 }
 
 class PlantCard extends HTMLElement {
+  /** Gives the card a visual editor in the "Add card" dialog. */
+  static getConfigElement() {
+    return document.createElement("plant-card-editor");
+  }
+
   static getStubConfig(hass) {
     const summary = Object.keys(hass ? hass.states : {}).find(
       (id) => id.startsWith("sensor.") && hass.states[id].attributes.last_watered_entity
@@ -565,13 +570,187 @@ class PlantCard extends HTMLElement {
   }
 }
 
-customElements.define("plant-card", PlantCard);
+/* ------------------------------------------------------------------------- *
+ * Visual editor
+ * ------------------------------------------------------------------------- */
 
+const CARE_ENTITY_DOMAINS = ["datetime", "input_datetime"];
+
+// ha-form flattens sections whose name is "", so the config stays a flat map.
+const EDITOR_SCHEMA = [
+  { name: "entity", selector: { entity: { domain: "sensor" } } },
+  {
+    name: "",
+    type: "grid",
+    schema: [
+      { name: "name", selector: { text: {} } },
+      { name: "icon", selector: { icon: {} } },
+    ],
+  },
+  {
+    name: "",
+    type: "grid",
+    schema: [
+      {
+        name: "water_interval",
+        selector: { number: { min: 1, max: 365, step: 1, mode: "box" } },
+      },
+      {
+        name: "fertilize_interval",
+        selector: { number: { min: 1, max: 365, step: 1, mode: "box" } },
+      },
+    ],
+  },
+  {
+    name: "",
+    type: "expandable",
+    title: "Entities",
+    icon: "mdi:database",
+    schema: [
+      {
+        name: "last_watered",
+        selector: { entity: { domain: CARE_ENTITY_DOMAINS } },
+      },
+      {
+        name: "last_fertilized",
+        selector: { entity: { domain: CARE_ENTITY_DOMAINS } },
+      },
+      {
+        name: "temperature",
+        selector: { entity: { domain: "sensor", device_class: "temperature" } },
+      },
+      {
+        name: "humidity",
+        selector: { entity: { domain: "sensor", device_class: "humidity" } },
+      },
+      {
+        name: "illuminance",
+        selector: { entity: { domain: "sensor", device_class: "illuminance" } },
+      },
+      { name: "moisture", selector: { entity: { domain: "sensor" } } },
+    ],
+  },
+  {
+    name: "",
+    type: "expandable",
+    title: "Appearance and behaviour",
+    icon: "mdi:palette",
+    schema: [
+      { name: "image", selector: { text: {} } },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "tap_to_log", selector: { boolean: {} } },
+          { name: "confirm", selector: { boolean: {} } },
+          { name: "show_progress", selector: { boolean: {} } },
+        ],
+      },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "water_label", selector: { text: {} } },
+          { name: "fertilize_label", selector: { text: {} } },
+        ],
+      },
+    ],
+  },
+];
+
+const EDITOR_LABELS = {
+  entity: "Plant (Plant Care summary entity)",
+  name: "Name",
+  icon: "Icon",
+  image: "Image URL",
+  water_interval: "Watering interval (days)",
+  fertilize_interval: "Fertilizing interval (days)",
+  last_watered: "Last watered",
+  last_fertilized: "Last fertilized",
+  temperature: "Temperature",
+  humidity: "Humidity",
+  illuminance: "Light",
+  moisture: "Soil moisture",
+  tap_to_log: "Tap a row to log care",
+  confirm: "Confirm with a second tap",
+  show_progress: "Show progress bars",
+  water_label: "Watering label",
+  fertilize_label: "Fertilizing label",
+};
+
+const EDITOR_HELPERS = {
+  entity: "Supplies the name, timestamps, intervals and sensors. Everything below is optional and overrides it.",
+  last_watered: "Only needed without a summary entity above.",
+};
+
+/** Drop blank values so cleared fields leave the YAML rather than sit empty. */
+function pruneConfig(data) {
+  const config = { type: "custom:plant-card" };
+  for (const [key, value] of Object.entries(data || {})) {
+    if (value === "" || value === undefined || value === null) continue;
+    config[key] = value;
+  }
+  return config;
+}
+
+class PlantCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = config;
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  _render() {
+    if (!this._hass || !this._config) return;
+
+    if (!this._form) {
+      this._form = document.createElement("ha-form");
+      this._form.computeLabel = (schema) =>
+        EDITOR_LABELS[schema.name] || schema.title || schema.name;
+      this._form.computeHelper = (schema) => EDITOR_HELPERS[schema.name];
+      this._form.addEventListener("value-changed", (ev) => {
+        ev.stopPropagation();
+        fireEvent(this, "config-changed", {
+          config: pruneConfig(ev.detail.value),
+        });
+      });
+      this.appendChild(this._form);
+    }
+
+    this._form.hass = this._hass;
+    this._form.schema = EDITOR_SCHEMA;
+    this._form.data = this._config;
+  }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Registration
+ * ------------------------------------------------------------------------- */
+
+// Guarded: the integration loads this module itself, and a leftover manual
+// Lovelace resource would otherwise load it a second time and throw on
+// define(), taking the whole dashboard down with it.
+if (!customElements.get("plant-card-editor")) {
+  customElements.define("plant-card-editor", PlantCardEditor);
+}
+
+if (!customElements.get("plant-card")) {
+  customElements.define("plant-card", PlantCard);
+}
+
+// This is what puts the card in the "Add card" picker.
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "plant-card",
-  name: "Plant Card",
-  description: "Track when a plant was last watered and fertilized, with its environment sensors.",
-  preview: false,
-  documentationURL: "https://github.com/albertsola/homeassistant-plant",
-});
+if (!window.customCards.some((card) => card.type === "plant-card")) {
+  window.customCards.push({
+    type: "plant-card",
+    name: "Plant Card",
+    description:
+      "Track when a plant was last watered and fertilized, with its environment sensors.",
+    preview: true,
+    documentationURL: "https://github.com/albertsola/homeassistant-plant",
+  });
+}
