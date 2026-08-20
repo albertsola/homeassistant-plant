@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
+from functools import partial
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import Event, HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_change,
+)
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -21,10 +25,15 @@ from .const import (
     CONF_FERTILIZE_EVENT,
     CONF_FERTILIZE_INTERVAL,
     CONF_PLANT_NAME,
+    CONF_SCHEDULE_OFF,
+    CONF_SCHEDULE_ON,
+    CONF_SWITCH,
     CONF_WATER_EVENT,
     CONF_WATER_INTERVAL,
     DEFAULT_FERTILIZE_EVENT,
     DEFAULT_FERTILIZE_INTERVAL,
+    DEFAULT_SCHEDULE_OFF,
+    DEFAULT_SCHEDULE_ON,
     DEFAULT_WATER_EVENT,
     DEFAULT_WATER_INTERVAL,
     DOMAIN,
@@ -33,6 +42,9 @@ from .const import (
     KEY_FERTILIZE_HISTORY,
     KEY_LAST_FERTILIZED,
     KEY_LAST_WATERED,
+    KEY_OFF_TIME,
+    KEY_ON_TIME,
+    KEY_SCHEDULE_ENABLED,
     KEY_WATER_HISTORY,
     LOGGER,
     STORAGE_VERSION,
@@ -49,6 +61,9 @@ class PlantCareData:
     fertilize_interval: float
     water_history: list[datetime] = field(default_factory=list)
     fertilize_history: list[datetime] = field(default_factory=list)
+    on_time: time | None = None
+    off_time: time | None = None
+    schedule_enabled: bool = False
 
     @staticmethod
     def _elapsed(moment: datetime | None) -> float | None:
@@ -79,6 +94,15 @@ class PlantCareData:
         if self.last_fertilized is None:
             return None
         return self.last_fertilized + timedelta(days=self.fertilize_interval)
+
+    @property
+    def schedule_window(self) -> str | None:
+        """The schedule as "08:00 – 20:00", for display."""
+        if self.on_time is None or self.off_time is None:
+            return None
+        return (
+            f"{self.on_time.strftime('%H:%M')} – {self.off_time.strftime('%H:%M')}"
+        )
 
     @property
     def needs_water(self) -> bool:
@@ -116,6 +140,10 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
         self._fertilize_history: list[datetime] = []
         self._water_interval = DEFAULT_WATER_INTERVAL
         self._fertilize_interval = DEFAULT_FERTILIZE_INTERVAL
+        self._on_time = _parse_time(DEFAULT_SCHEDULE_ON)
+        self._off_time = _parse_time(DEFAULT_SCHEDULE_OFF)
+        self._schedule_enabled = False
+        self._schedule_unsubs: list[CALLBACK_TYPE] = []
 
     @property
     def plant_name(self) -> str:
@@ -136,6 +164,14 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
             self._fertilize_interval = float(
                 options.get(CONF_FERTILIZE_INTERVAL, DEFAULT_FERTILIZE_INTERVAL)
             )
+            self._on_time = _parse_time(
+                options.get(CONF_SCHEDULE_ON, DEFAULT_SCHEDULE_ON)
+            )
+            self._off_time = _parse_time(
+                options.get(CONF_SCHEDULE_OFF, DEFAULT_SCHEDULE_OFF)
+            )
+            # Armed only once a switch has actually been chosen.
+            self._schedule_enabled = bool(options.get(CONF_SWITCH))
             await self._async_save()
             return
 
@@ -155,6 +191,11 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
         self._fertilize_interval = float(
             stored.get(CONF_FERTILIZE_INTERVAL, DEFAULT_FERTILIZE_INTERVAL)
         )
+        self._on_time = _parse_time(stored.get(KEY_ON_TIME, DEFAULT_SCHEDULE_ON))
+        self._off_time = _parse_time(stored.get(KEY_OFF_TIME, DEFAULT_SCHEDULE_OFF))
+        self._schedule_enabled = bool(
+            stored.get(KEY_SCHEDULE_ENABLED, bool(options.get(CONF_SWITCH)))
+        )
 
     async def _async_update_data(self) -> PlantCareData:
         """Return the current snapshot; the tick only refreshes elapsed time."""
@@ -168,6 +209,9 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
             fertilize_interval=self._fertilize_interval,
             water_history=list(self._water_history),
             fertilize_history=list(self._fertilize_history),
+            on_time=self._on_time,
+            off_time=self._off_time,
+            schedule_enabled=self._schedule_enabled,
         )
 
     async def _async_save(self) -> None:
@@ -179,6 +223,9 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
                 KEY_FERTILIZE_HISTORY: [_dump(m) for m in self._fertilize_history],
                 CONF_WATER_INTERVAL: self._water_interval,
                 CONF_FERTILIZE_INTERVAL: self._fertilize_interval,
+                KEY_ON_TIME: _dump_time(self._on_time),
+                KEY_OFF_TIME: _dump_time(self._off_time),
+                KEY_SCHEDULE_ENABLED: self._schedule_enabled,
             }
         )
 
@@ -204,6 +251,108 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
             self._fertilize_interval = days
         await self._async_save()
         self.async_set_updated_data(self._snapshot())
+
+    async def async_set_schedule_time(self, key: str, value: time) -> None:
+        """Move one edge of the schedule."""
+        if key == KEY_ON_TIME:
+            self._on_time = value
+        else:
+            self._off_time = value
+        await self._async_save()
+        self.async_set_updated_data(self._snapshot())
+        self.async_schedule_switch()
+
+    async def async_set_schedule_enabled(self, enabled: bool) -> None:
+        """Arm or disarm the schedule."""
+        self._schedule_enabled = enabled
+        await self._async_save()
+        self.async_set_updated_data(self._snapshot())
+        self.async_schedule_switch()
+        if enabled:
+            # Arming should take effect now, not at the next edge.
+            await self.async_sync_switch()
+
+    @callback
+    def async_schedule_switch(self) -> None:
+        """(Re)register the on and off triggers."""
+        self.async_stop_schedule()
+
+        target = self.entry.options.get(CONF_SWITCH)
+        if not (
+            self._schedule_enabled
+            and target
+            and self._on_time is not None
+            and self._off_time is not None
+        ):
+            return
+
+        for moment, turn_on in ((self._on_time, True), (self._off_time, False)):
+            self._schedule_unsubs.append(
+                async_track_time_change(
+                    self.hass,
+                    partial(self._handle_schedule_tick, turn_on),
+                    hour=moment.hour,
+                    minute=moment.minute,
+                    second=moment.second,
+                )
+            )
+
+    @callback
+    def async_stop_schedule(self) -> None:
+        """Drop the schedule triggers."""
+        for unsub in self._schedule_unsubs:
+            unsub()
+        self._schedule_unsubs.clear()
+
+    @callback
+    def _handle_schedule_tick(self, turn_on: bool, now: datetime) -> None:
+        """A scheduled edge was reached."""
+        self.entry.async_create_task(
+            self.hass, self._async_set_switch(turn_on), eager_start=False
+        )
+
+    async def _async_set_switch(self, turn_on: bool) -> None:
+        """Drive the configured switch.
+
+        homeassistant.turn_on/turn_off rather than switch.* so the same code
+        works for a light, an input_boolean or a fan.
+        """
+        target = self.entry.options.get(CONF_SWITCH)
+        if not target:
+            return
+        LOGGER.debug(
+            "%s: turning %s %s", self.plant_name, "on" if turn_on else "off", target
+        )
+        await self.hass.services.async_call(
+            "homeassistant",
+            "turn_on" if turn_on else "turn_off",
+            {"entity_id": target},
+            blocking=False,
+        )
+
+    async def async_sync_switch(self, *_: Any) -> None:
+        """Put the switch into the state the schedule implies right now.
+
+        Without this a restart at midday would leave a grow light off until
+        the next evening edge.
+        """
+        target = self.entry.options.get(CONF_SWITCH)
+        if not (self._schedule_enabled and target):
+            return
+        await self._async_set_switch(self.is_within_schedule())
+
+    @callback
+    def is_within_schedule(self, moment: time | None = None) -> bool:
+        """Whether the switch should currently be on.
+
+        Handles a window that crosses midnight, e.g. on 20:00, off 06:00.
+        """
+        if self._on_time is None or self._off_time is None:
+            return False
+        current = moment or dt_util.now().time()
+        if self._on_time <= self._off_time:
+            return self._on_time <= current < self._off_time
+        return current >= self._on_time or current < self._off_time
 
     @callback
     def async_watch_button(self) -> None:
@@ -275,6 +424,20 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
             if value in EVENT_ALIASES.get(configured, frozenset()):
                 return care
         return None
+
+
+def _parse_time(raw: Any) -> time | None:
+    """Read a stored "HH:MM:SS"."""
+    if isinstance(raw, time):
+        return raw
+    if not raw:
+        return None
+    return dt_util.parse_time(str(raw))
+
+
+def _dump_time(moment: time | None) -> str | None:
+    """Write a time for storage."""
+    return moment.isoformat() if moment else None
 
 
 def _add_to_history(

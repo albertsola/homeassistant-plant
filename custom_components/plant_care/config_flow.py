@@ -25,14 +25,20 @@ from .const import (
     CONF_ILLUMINANCE,
     CONF_MOISTURE,
     CONF_PLANT_NAME,
+    CONF_SCHEDULE_OFF,
+    CONF_SCHEDULE_ON,
+    CONF_SWITCH,
     CONF_TEMPERATURE,
     CONF_WATER_EVENT,
     CONF_WATER_INTERVAL,
     DEFAULT_FERTILIZE_EVENT,
     DEFAULT_FERTILIZE_INTERVAL,
+    DEFAULT_SCHEDULE_OFF,
+    DEFAULT_SCHEDULE_ON,
     DEFAULT_WATER_EVENT,
     DEFAULT_WATER_INTERVAL,
     DOMAIN,
+    SWITCH_DOMAINS,
 )
 
 BUTTON_DOMAINS = ["event", "switch", "input_boolean", "binary_sensor"]
@@ -63,12 +69,13 @@ def _optional(key: str, defaults: Mapping[str, Any]) -> vol.Optional:
 
 
 def _schema(
-    defaults: Mapping[str, Any], *, include_name: bool, include_intervals: bool
+    defaults: Mapping[str, Any], *, include_name: bool, include_initial_values: bool
 ) -> vol.Schema:
     """Build the setup form.
 
-    Intervals appear only during setup: afterwards they live on the number
-    entities, so that adjusting one does not reload the integration.
+    Intervals and schedule times appear only during setup: afterwards they
+    live on their own entities, so adjusting one does not reload the
+    integration.
     """
     fields: dict[Any, Any] = {}
 
@@ -96,7 +103,23 @@ def _schema(
     # deliberately unfiltered.
     fields[_optional(CONF_MOISTURE, defaults)] = _entity("sensor")
 
-    if include_intervals:
+    # A switch on a schedule: a grow light, a pump, a fan.
+    fields[_optional(CONF_SWITCH, defaults)] = _entity(SWITCH_DOMAINS)
+
+    if include_initial_values:
+        fields[
+            vol.Required(
+                CONF_SCHEDULE_ON,
+                default=defaults.get(CONF_SCHEDULE_ON, DEFAULT_SCHEDULE_ON),
+            )
+        ] = selector.TimeSelector()
+        fields[
+            vol.Required(
+                CONF_SCHEDULE_OFF,
+                default=defaults.get(CONF_SCHEDULE_OFF, DEFAULT_SCHEDULE_OFF),
+            )
+        ] = selector.TimeSelector()
+
         fields[
             vol.Required(
                 CONF_WATER_INTERVAL,
@@ -136,7 +159,7 @@ class PlantCareConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=_schema({}, include_name=True, include_intervals=True),
+            data_schema=_schema({}, include_name=True, include_initial_values=True),
         )
 
     @staticmethod
@@ -161,6 +184,6 @@ class PlantCareOptionsFlow(OptionsFlow):
             data_schema=_schema(
                 self.config_entry.options,
                 include_name=False,
-                include_intervals=False,
+                include_initial_values=False,
             ),
         )

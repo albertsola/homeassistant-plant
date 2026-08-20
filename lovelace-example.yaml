@@ -15,6 +15,15 @@ water_interval: 5
 confirm: false
 
 ---
+# The switch row and schedule come from the integration too; these only
+# control whether the card shows them.
+type: custom:plant-card
+entity: sensor.monstera_plant
+show_switch: true
+show_details: true
+history_length: 8
+
+---
 # Several plants side by side.
 type: grid
 columns: 2

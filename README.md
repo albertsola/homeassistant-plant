@@ -90,6 +90,8 @@ Anything set explicitly still wins:
 | `tap_to_log` | bool | `true` | Tapping a care row logs that care event. |
 | `confirm` | bool | `true` | Require a second tap within 4 s before logging. |
 | `show_progress` | bool | `true` | Thin bar showing elapsed time towards the interval. |
+| `switch` | entity | – | A switch, light, `input_boolean` or fan shown as a tappable row. |
+| `show_switch` | bool | `true` | Show the switch row at all. |
 | `show_details` | bool | `true` | Show the ⌄ button that expands the care details panel. |
 | `history_length` | number | `5` | How many past care events the panel lists. |
 | `water_script` | `script.x` | – | Call this instead of writing the timestamp directly. |
@@ -135,6 +137,9 @@ Each plant becomes one device:
 | `number.<plant>_fertilizing_interval` | Interval in days. |
 | `button.<plant>_log_watering` | Log watering now, from the UI or an automation. |
 | `button.<plant>_log_fertilizing` | Log fertilizing now. |
+| `time.<plant>_on_time` | When the scheduled switch turns on. |
+| `time.<plant>_off_time` | When it turns off. |
+| `switch.<plant>_schedule` | Whether the schedule is armed. |
 
 Care history is persisted in HA's storage, so it survives restarts and
 reloads.
@@ -173,6 +178,37 @@ Otherwise work through these in order — the first two catch almost every case.
    duplicate registration from an old manual resource used to break this;
    remove `/local/plant-card.js` from *Settings → Dashboards → Resources* if
    it is still there.
+
+## Scheduled switch
+
+A plant often has something on a timer next to it — a grow light, a pump, a
+fan. Pick it during setup (or later under *Configure*) as the **scheduled
+switch**, and the integration drives it on and off once a day.
+
+The times live on the plant's own entities, so changing them is a normal UI
+edit and takes effect immediately:
+
+| Entity | Purpose |
+| --- | --- |
+| `time.<plant>_on_time` | When to switch on. Defaults to 08:00. |
+| `time.<plant>_off_time` | When to switch off. Defaults to 20:00. |
+| `switch.<plant>_schedule` | Arms the schedule. Turning it off leaves the switch where it is. |
+
+Details worth knowing:
+
+- **Times are local**, so 08:00 means 08:00 where the plant is.
+- **A window may cross midnight.** Off earlier than on — say on 20:00, off
+  06:00 — means overnight, not an empty window.
+- **The switch is synced on startup and on arming**, so a restart at midday
+  does not leave a grow light off until the evening. If you want to override
+  it by hand, disarm the schedule first, or it will be corrected on the next
+  restart.
+- **Any of `switch`, `light`, `input_boolean` or `fan` works** — the
+  integration calls `homeassistant.turn_on` / `turn_off`, not `switch.*`.
+
+The card shows the switch as a row with its current state and the active
+window (`On · 08:00 – 20:00`); tapping toggles it. The details panel adds the
+exact times and whether the schedule is armed.
 
 ## Buttons
 

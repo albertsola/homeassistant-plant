@@ -9,6 +9,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.start import async_at_start
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
@@ -66,6 +67,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: PlantCareConfigEntry) ->
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     coordinator.async_watch_button()
+    coordinator.async_schedule_switch()
+    entry.async_on_unload(coordinator.async_stop_schedule)
+    # Bring the switch in line with the schedule once HA is up, so a restart
+    # mid-window does not leave it in the wrong state.
+    entry.async_on_unload(async_at_start(hass, coordinator.async_sync_switch))
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     return True
 

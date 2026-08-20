@@ -14,13 +14,19 @@
           "illuminance_entity": "Light sensor",
           "moisture_entity": "Soil moisture sensor",
           "water_interval": "Watering interval",
-          "fertilize_interval": "Fertilizing interval"
+          "fertilize_interval": "Fertilizing interval",
+          "switch_entity": "Scheduled switch",
+          "schedule_on": "Switch on at",
+          "schedule_off": "Switch off at"
         },
         "data_description": {
           "button_entity": "A button, switch or helper. Pressing it logs care against this plant.",
           "water_event": "For an event entity this is the event type, for a switch it is the state. Common alternatives such as turn_on and on_press are matched automatically.",
           "water_interval": "Days before watering counts as overdue. Adjustable afterwards from the plant's Watering interval entity.",
-          "fertilize_interval": "Days before fertilizing counts as overdue."
+          "fertilize_interval": "Days before fertilizing counts as overdue.",
+          "switch_entity": "A grow light, pump or fan to run on a daily schedule.",
+          "schedule_on": "Adjustable afterwards from the plant's On time entity.",
+          "schedule_off": "A time earlier than the on time makes the window cross midnight."
         }
       }
     },
@@ -40,22 +46,32 @@
           "temperature_entity": "Temperature sensor",
           "humidity_entity": "Humidity sensor",
           "illuminance_entity": "Light sensor",
-          "moisture_entity": "Soil moisture sensor"
+          "moisture_entity": "Soil moisture sensor",
+          "switch_entity": "Scheduled switch"
         },
         "data_description": {
-          "button_entity": "A button, switch or helper. Pressing it logs care against this plant."
+          "button_entity": "A button, switch or helper. Pressing it logs care against this plant.",
+          "switch_entity": "A grow light, pump or fan to run on a daily schedule. The times are set on the plant's own On time and Off time entities."
         }
       }
     }
   },
   "entity": {
     "datetime": {
-      "last_watered": { "name": "Last watered" },
-      "last_fertilized": { "name": "Last fertilized" }
+      "last_watered": {
+        "name": "Last watered"
+      },
+      "last_fertilized": {
+        "name": "Last fertilized"
+      }
     },
     "sensor": {
-      "days_since_watered": { "name": "Days since watered" },
-      "days_since_fertilized": { "name": "Days since fertilized" },
+      "days_since_watered": {
+        "name": "Days since watered"
+      },
+      "days_since_fertilized": {
+        "name": "Days since fertilized"
+      },
       "plant": {
         "name": "Plant",
         "state": {
@@ -67,16 +83,41 @@
       }
     },
     "binary_sensor": {
-      "needs_water": { "name": "Needs water" },
-      "needs_fertilizer": { "name": "Needs fertilizer" }
+      "needs_water": {
+        "name": "Needs water"
+      },
+      "needs_fertilizer": {
+        "name": "Needs fertilizer"
+      }
     },
     "number": {
-      "water_interval": { "name": "Watering interval" },
-      "fertilize_interval": { "name": "Fertilizing interval" }
+      "water_interval": {
+        "name": "Watering interval"
+      },
+      "fertilize_interval": {
+        "name": "Fertilizing interval"
+      }
     },
     "button": {
-      "log_watering": { "name": "Log watering" },
-      "log_fertilizing": { "name": "Log fertilizing" }
+      "log_watering": {
+        "name": "Log watering"
+      },
+      "log_fertilizing": {
+        "name": "Log fertilizing"
+      }
+    },
+    "time": {
+      "on_time": {
+        "name": "On time"
+      },
+      "off_time": {
+        "name": "Off time"
+      }
+    },
+    "switch": {
+      "schedule": {
+        "name": "Schedule"
+      }
     }
   }
 }

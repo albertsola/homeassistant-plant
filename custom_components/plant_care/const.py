@@ -15,6 +15,8 @@ PLATFORMS: list[Platform] = [
     Platform.DATETIME,
     Platform.NUMBER,
     Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.TIME,
 ]
 
 CONF_PLANT_NAME = "plant_name"
@@ -27,6 +29,9 @@ CONF_ILLUMINANCE = "illuminance_entity"
 CONF_MOISTURE = "moisture_entity"
 CONF_WATER_INTERVAL = "water_interval"
 CONF_FERTILIZE_INTERVAL = "fertilize_interval"
+CONF_SWITCH = "switch_entity"
+CONF_SCHEDULE_ON = "schedule_on"
+CONF_SCHEDULE_OFF = "schedule_off"
 
 SENSOR_CONF_KEYS = (
     CONF_TEMPERATURE,
@@ -39,6 +44,8 @@ DEFAULT_WATER_INTERVAL = 7.0
 DEFAULT_FERTILIZE_INTERVAL = 30.0
 DEFAULT_WATER_EVENT = "on"
 DEFAULT_FERTILIZE_EVENT = "off"
+DEFAULT_SCHEDULE_ON = "08:00:00"
+DEFAULT_SCHEDULE_OFF = "20:00:00"
 
 CARE_WATER = "water"
 CARE_FERTILIZE = "fertilize"
@@ -47,6 +54,14 @@ KEY_LAST_WATERED = "last_watered"
 KEY_LAST_FERTILIZED = "last_fertilized"
 KEY_WATER_HISTORY = "water_history"
 KEY_FERTILIZE_HISTORY = "fertilize_history"
+
+KEY_SCHEDULE_ENABLED = "schedule_enabled"
+KEY_ON_TIME = "on_time"
+KEY_OFF_TIME = "off_time"
+
+# Domains the scheduled switch may point at. homeassistant.turn_on/turn_off
+# handles all of them, so no per-domain special casing is needed.
+SWITCH_DOMAINS = ["switch", "light", "input_boolean", "fan"]
 
 # How many past care events to keep per plant. Enough for the card's detail
 # panel and a sense of rhythm, small enough to stay out of the way in state
@@ -64,7 +79,7 @@ STORAGE_VERSION = 1
 
 CARD_URL_BASE = "/plant_care"
 CARD_FILENAME = "plant-card.js"
-CARD_VERSION = "1.3.0"
+CARD_VERSION = "1.4.0"
 
 STATUS_OK = "ok"
 STATUS_NEEDS_WATER = "needs_water"

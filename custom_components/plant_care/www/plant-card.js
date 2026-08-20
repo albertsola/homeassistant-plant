@@ -14,7 +14,7 @@
  * framework, so it keeps working across Home Assistant frontend releases.
  */
 
-const CARD_VERSION = "1.3.0";
+const CARD_VERSION = "1.4.0";
 
 console.info(
   `%c PLANT-CARD %c ${CARD_VERSION} `,
@@ -38,6 +38,7 @@ const DEFAULTS = {
   show_progress: true,
   show_details: true,
   history_length: 5,
+  show_switch: true,
 };
 
 /** Map a Plant Care summary entity's attributes onto card config. */
@@ -51,6 +52,7 @@ const HUB_KEYS = {
   humidity: "humidity_entity",
   illuminance: "illuminance_entity",
   moisture: "moisture_entity",
+  switch: "switch_entity",
 };
 
 const SENSOR_ROW = [
@@ -202,6 +204,12 @@ const EDITOR_SCHEMA = [
         selector: { entity: { domain: "sensor", device_class: "illuminance" } },
       },
       { name: "moisture", selector: { entity: { domain: "sensor" } } },
+      {
+        name: "switch",
+        selector: {
+          entity: { domain: ["switch", "light", "input_boolean", "fan"] },
+        },
+      },
     ],
   },
   {
@@ -232,6 +240,7 @@ const EDITOR_SCHEMA = [
         name: "",
         type: "grid",
         schema: [
+          { name: "show_switch", selector: { boolean: {} } },
           { name: "show_details", selector: { boolean: {} } },
           {
             name: "history_length",
@@ -261,6 +270,8 @@ const EDITOR_LABELS = {
   show_progress: "Show progress bars",
   water_label: "Watering label",
   fertilize_label: "Fertilizing label",
+  switch: "Scheduled switch",
+  show_switch: "Show the switch row",
   show_details: "Show the care details button",
   history_length: "Care events to list",
 };
@@ -376,10 +387,17 @@ function buildClasses() {
           water: attrs.next_water_due || null,
           fertilize: attrs.next_fertilize_due || null,
         };
+        this._hubSchedule = {
+          enabled: Boolean(attrs.schedule_enabled),
+          on: attrs.schedule_on || null,
+          off: attrs.schedule_off || null,
+          window: attrs.schedule_window || null,
+        };
       } else {
         this._hubStamps = null;
         this._hubHistory = null;
         this._hubDue = null;
+        this._hubSchedule = null;
       }
 
       return { ...DEFAULTS, ...fromHub, ...user };
@@ -605,6 +623,11 @@ function buildClasses() {
           }
           .history li span:last-child { color: var(--secondary-text-color); }
           .empty { font-size: 0.85rem; color: var(--secondary-text-color); }
+          .row.device { --status-color: var(--secondary-text-color); }
+          .row.device.active {
+            --status-color: var(--state-switch-active-color, var(--primary-color));
+          }
+          .row.device .value { font-weight: 400; }
         </style>
         <ha-card>
           <div class="header">
@@ -634,6 +657,15 @@ function buildClasses() {
               <div class="bar" id="bar-fertilize"><div></div></div>
             </div>
           </div>
+          ${
+            cfg.show_switch
+              ? `<div class="row device" id="row-switch">
+                   <ha-icon id="switch-icon"></ha-icon>
+                   <div class="label" id="switch-label"></div>
+                   <div class="value" id="switch-value"></div>
+                 </div>`
+              : ""
+          }
           ${sensors.length ? `<div class="sensors" id="sensors"></div>` : ""}
           ${cfg.show_details ? `<div class="details" id="details" hidden></div>` : ""}
         </ha-card>
@@ -662,6 +694,14 @@ function buildClasses() {
         sensors: $("sensors"),
         toggle: $("toggle"),
         details: $("details"),
+        device: $("row-switch")
+          ? {
+              row: $("row-switch"),
+              icon: $("switch-icon"),
+              label: $("switch-label"),
+              value: $("switch-value"),
+            }
+          : null,
       };
 
       if (!cfg.last_fertilized && !(this._hubStamps && this._hubStamps.fertilize)) {
@@ -674,6 +714,11 @@ function buildClasses() {
           row.classList.add("tappable");
           row.addEventListener("click", () => this._onCareTap(kind));
         }
+      }
+
+      if (this._el.device) {
+        this._el.device.row.classList.add("tappable");
+        this._el.device.row.addEventListener("click", () => this._onSwitchTap());
       }
 
       if (this._el.toggle) {
@@ -813,6 +858,8 @@ function buildClasses() {
         }
       }
 
+      if (this._el.device) this._paintSwitch();
+
       if (this._el.toggle) {
         const open = Boolean(this._expanded);
         this._el.toggle.setAttribute("aria-expanded", String(open));
@@ -829,12 +876,92 @@ function buildClasses() {
       }
     }
 
+    _paintSwitch() {
+      const el = this._el.device;
+      const entity = this._config.switch;
+      const stateObj = entity ? this._hass.states[entity] : undefined;
+
+      if (!stateObj) {
+        el.row.style.display = "none";
+        return;
+      }
+      el.row.style.display = "";
+
+      const on = String(stateObj.state).toLowerCase() === "on";
+      el.row.classList.toggle("active", on);
+      el.icon.setAttribute(
+        "icon",
+        stateObj.attributes.icon ||
+          (entity.startsWith("light.") ? "mdi:lightbulb" : "mdi:power-plug")
+      );
+      el.label.textContent =
+        stateObj.attributes.friendly_name || entity.split(".")[1];
+
+      const window =
+        this._hubSchedule && this._hubSchedule.enabled
+          ? this._hubSchedule.window
+          : null;
+      el.value.textContent = `${on ? "On" : "Off"}${window ? ` · ${window}` : ""}`;
+    }
+
+    _onSwitchTap() {
+      const entity = this._config.switch;
+      if (!entity || !this._hass.states[entity]) return;
+      fireEvent(this, "haptic", "light");
+      this._hass.callService("homeassistant", "toggle", { entity_id: entity });
+    }
+
+    /** The schedule, for the expanded panel. */
+    _scheduleDetailHtml() {
+      const entity = this._config.switch;
+      const schedule = this._hubSchedule;
+      if (!entity && !schedule) return "";
+
+      const stateObj = entity ? this._hass.states[entity] : undefined;
+      const rows = [];
+      if (stateObj) {
+        rows.push([
+          "Switch",
+          stateObj.attributes.friendly_name || entity.split(".")[1],
+        ]);
+        rows.push(["Now", String(stateObj.state).toLowerCase() === "on" ? "On" : "Off"]);
+      }
+      if (schedule && schedule.on) rows.push(["On at", schedule.on.slice(0, 5)]);
+      if (schedule && schedule.off) rows.push(["Off at", schedule.off.slice(0, 5)]);
+      if (schedule) {
+        rows.push(["Schedule", schedule.enabled ? "Armed" : "Not armed"]);
+      }
+      if (!rows.length) return "";
+
+      return `
+        <section class="detail">
+          <header>
+            <ha-icon icon="mdi:calendar-clock"></ha-icon>
+            <span>Schedule</span>
+            ${
+              entity
+                ? `<button class="icon" data-more-info="${escapeAttr(
+                    entity
+                  )}" title="Open entity"><ha-icon icon="mdi:open-in-new"></ha-icon></button>`
+                : ""
+            }
+          </header>
+          <dl>
+            ${rows
+              .map(([term, value]) => `<dt>${term}</dt><dd>${value}</dd>`)
+              .join("")}
+          </dl>
+        </section>
+      `;
+    }
+
     /** Render the expanded panel: exact dates, next due, and the care log. */
     _paintDetails(care, lang) {
-      this._el.details.innerHTML = care
-        .filter((item) => item.entity || this._careHistory(item.kind))
-        .map((item) => this._careDetailHtml(item, lang))
-        .join("");
+      this._el.details.innerHTML =
+        care
+          .filter((item) => item.entity || this._careHistory(item.kind))
+          .map((item) => this._careDetailHtml(item, lang))
+          .join("") + this._scheduleDetailHtml();
     }
 
     _careHistory(kind) {

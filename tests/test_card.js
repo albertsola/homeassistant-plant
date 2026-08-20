@@ -488,6 +488,112 @@ section("care details panel");
   ok("escapes entity ids before interpolating them");
 }
 
+/* ------------------------------------------------------------------ */
+section("scheduled switch");
+{
+  const { PlantCard } = load();
+
+  const hassWith = (overrides = {}) => ({
+    locale: { language: "en" },
+    states: {
+      "sensor.p": {
+        state: "ok",
+        attributes: {
+          plant_name: "Monstera",
+          switch_entity: "light.grow_light",
+          schedule_enabled: true,
+          schedule_on: "08:00:00",
+          schedule_off: "20:00:00",
+          schedule_window: "08:00 – 20:00",
+          ...overrides,
+        },
+      },
+      "light.grow_light": {
+        state: "on",
+        attributes: { friendly_name: "Grow light" },
+      },
+    },
+  });
+
+  const build = (hass, config = {}) => {
+    const card = Object.create(PlantCard.prototype);
+    card.setConfig({ entity: "sensor.p", ...config });
+    card._hass = hass;
+    card._config = card._resolve();
+    return card;
+  };
+
+  let card = build(hassWith());
+  assert.equal(card._config.switch, "light.grow_light");
+  ok("switch entity comes from the summary entity");
+
+  // A minimal stand-in for the row's nodes.
+  const stubRow = () => ({
+    row: { classList: { add() {}, toggle() {} }, style: {} },
+    icon: { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } },
+    label: {},
+    value: {},
+  });
+
+  card._el = { device: stubRow() };
+  card._paintSwitch();
+  assert.equal(card._el.device.label.textContent, "Grow light");
+  assert.equal(card._el.device.value.textContent, "On · 08:00 – 20:00");
+  assert.equal(card._el.device.icon.attrs.icon, "mdi:lightbulb");
+  ok(`switch row reads "${card._el.device.value.textContent}"`);
+
+  // Not armed: the window is not advertised.
+  card = build(hassWith({ schedule_enabled: false }));
+  card._el = { device: stubRow() };
+  card._paintSwitch();
+  assert.equal(card._el.device.value.textContent, "On");
+  ok("window is hidden while the schedule is not armed");
+
+  // Missing target entity hides the row rather than showing a broken one.
+  card = build({ locale: { language: "en" }, states: {
+    "sensor.p": { state: "ok", attributes: { switch_entity: "light.gone" } },
+  }});
+  card._el = { device: stubRow() };
+  card._paintSwitch();
+  assert.equal(card._el.device.row.style.display, "none");
+  ok("row is hidden when the switch entity is missing");
+
+  // Tapping toggles, domain-agnostically.
+  card = build(hassWith());
+  const calls = [];
+  card._hass = { ...hassWith(), callService: (d, s2, data) => calls.push([d, s2, data]) };
+  card.dispatchEvent = () => {}; // haptic feedback event
+  card._onSwitchTap();
+  assert.deepEqual(calls[0], [
+    "homeassistant",
+    "toggle",
+    { entity_id: "light.grow_light" },
+  ]);
+  ok("tapping the row calls homeassistant.toggle");
+
+  // Detail panel section.
+  card = build(hassWith());
+  let html = card._scheduleDetailHtml();
+  for (const needle of ["Schedule", "<dt>On at</dt>", "<dd>08:00</dd>", "<dd>20:00</dd>", "Armed"]) {
+    assert.ok(html.includes(needle), `schedule panel missing ${needle}: ${html}`);
+  }
+  assert.ok(html.includes('data-more-info="light.grow_light"'));
+  ok("details panel shows the schedule and links to the switch");
+
+  card = build(hassWith({ schedule_enabled: false }));
+  html = card._scheduleDetailHtml();
+  assert.ok(html.includes("Not armed"));
+  ok("details panel reports a disarmed schedule");
+
+  // No switch at all: no section.
+  const plain = Object.create(PlantCard.prototype);
+  plain.setConfig({ last_watered: "input_datetime.x" });
+  plain._hass = { locale: { language: "en" }, states: {} };
+  plain._config = plain._resolve();
+  assert.equal(plain._scheduleDetailHtml(), "");
+  ok("no schedule section without a switch");
+}
+
 /* ------------------------------------------------------------------ *
  * Regression: "Custom element not found: plant-card"
  *
