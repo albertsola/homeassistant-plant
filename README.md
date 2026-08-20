@@ -194,7 +194,8 @@ exist for exactly this case.
 
 ```bash
 pip install -r requirements-test.txt
-pytest
+pytest              # integration: boots Home Assistant
+node tests/test_card.js   # card: runs under a small browser stub
 ```
 
 The suite boots Home Assistant, sets up a config entry, and drives real

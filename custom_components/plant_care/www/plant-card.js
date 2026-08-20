@@ -14,7 +14,7 @@
  * framework, so it keeps working across Home Assistant frontend releases.
  */
 
-const CARD_VERSION = "1.2.0";
+const CARD_VERSION = "1.2.1";
 
 console.info(
   `%c PLANT-CARD %c ${CARD_VERSION} `,
@@ -126,17 +126,32 @@ class PlantCard extends HTMLElement {
     return document.createElement("plant-card-editor");
   }
 
+  /**
+   * Home Assistant awaits this while building the card picker, and does NOT
+   * wrap the call: anything thrown here rejects the picker's render promise
+   * and the tile is left spinning forever. So it must never throw.
+   */
   static getStubConfig(hass) {
-    const summary = Object.keys(hass ? hass.states : {}).find(
-      (id) => id.startsWith("sensor.") && hass.states[id].attributes.last_watered_entity
-    );
-    if (summary) return { type: "custom:plant-card", entity: summary };
-    return {
+    const fallback = {
       type: "custom:plant-card",
       name: "Plant",
       last_watered: "input_datetime.plant_last_watered",
       last_fertilized: "input_datetime.plant_last_fertilized",
     };
+
+    try {
+      const states = (hass && hass.states) || {};
+      const summary = Object.keys(states).find(
+        (id) =>
+          id.startsWith("sensor.") &&
+          states[id] &&
+          states[id].attributes &&
+          states[id].attributes.last_watered_entity
+      );
+      return summary ? { type: "custom:plant-card", entity: summary } : fallback;
+    } catch (_err) {
+      return fallback;
+    }
   }
 
   setConfig(config) {
@@ -750,7 +765,10 @@ if (!window.customCards.some((card) => card.type === "plant-card")) {
     name: "Plant Card",
     description:
       "Track when a plant was last watered and fertilized, with its environment sensors.",
-    preview: true,
+    // Deliberately no live preview: the picker renders it before any plant is
+    // chosen, and a tile that shows the card's name is more useful than one
+    // rendering a card full of missing entities.
+    preview: false,
     documentationURL: "https://github.com/albertsola/homeassistant-plant",
   });
 }

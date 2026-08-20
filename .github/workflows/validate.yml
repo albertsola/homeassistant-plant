@@ -39,7 +39,7 @@ jobs:
       - run: pytest
 
   card:
-    name: Card syntax
+    name: Card tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,3 +47,4 @@ jobs:
         with:
           node-version: "20"
       - run: node --check custom_components/plant_care/www/plant-card.js
+      - run: node tests/test_card.js
