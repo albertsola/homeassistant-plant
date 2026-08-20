@@ -57,7 +57,7 @@ STORAGE_VERSION = 1
 
 CARD_URL_BASE = "/plant_care"
 CARD_FILENAME = "plant-card.js"
-CARD_VERSION = "1.2.1"
+CARD_VERSION = "1.2.2"
 
 STATUS_OK = "ok"
 STATUS_NEEDS_WATER = "needs_water"

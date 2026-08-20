@@ -31,23 +31,39 @@ function section(name) {
   console.log(`\n${name}`);
 }
 
-function load() {
-  const defined = new Map();
+function makeRegistry(seed = []) {
+  const defined = new Map(seed.map((name) => [name, class {}]));
+  return {
+    defined,
+    define(name, cls) {
+      if (defined.has(name)) {
+        throw new Error(
+          `Failed to execute 'define': the name "${name}" has already been used with this registry`
+        );
+      }
+      defined.set(name, cls);
+    },
+    get(name) {
+      return defined.get(name);
+    },
+  };
+}
+
+/**
+ * Loads the card into a stub of the browser globals it touches.
+ *
+ * `window` is the context itself, so `window.customElements` and the bare
+ * `HTMLElement` global are the same objects the module sees in a browser —
+ * which is what lets us simulate app.js swapping them mid-boot.
+ */
+function load({ frontendReady = true } = {}) {
+  const registry = makeRegistry(frontendReady ? ["home-assistant"] : []);
   const ctx = {
     console: { info() {} },
-    window: {},
     HTMLElement: class {
       appendChild() {}
     },
-    customElements: {
-      define(name, cls) {
-        if (defined.has(name)) throw new Error(`already defined: ${name}`);
-        defined.set(name, cls);
-      },
-      get(name) {
-        return defined.get(name);
-      },
-    },
+    customElements: registry,
     document: {
       createElement: (tag) => ({
         _tag: tag,
@@ -70,18 +86,32 @@ function load() {
     Number,
     Object,
     Math,
+    Boolean,
+    String,
     setInterval,
     clearInterval,
     setTimeout,
     clearTimeout,
   };
+  ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(
-    `${src}\n;this.__t = { PlantCard, PlantCardEditor, EDITOR_SCHEMA, EDITOR_LABELS, pruneConfig, stampOf, isoStamp, statusOf, daysSince };`,
+    `${src}\n;this.__t = { buildClasses, EDITOR_SCHEMA, EDITOR_LABELS, pruneConfig, stampOf, isoStamp, statusOf, daysSince, register, PICKER_ENTRY };`,
     ctx
   );
-  return { ...ctx.__t, window: ctx.window, defined, ctx };
+
+  // Classes are exposed through getters, so tests that never touch them leave
+  // them unbuilt — which is what the lazy-binding test below depends on.
+  const api = { ...ctx.__t, window: ctx, ctx, registry };
+  for (const name of ["PlantCard", "PlantCardEditor"]) {
+    Object.defineProperty(api, name, {
+      get: () => ctx.__t.buildClasses()[name],
+    });
+  }
+  return api;
 }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const daysAgoIso = (days) =>
   new Date(Date.now() - days * 86400 * 1000).toISOString();
@@ -137,12 +167,12 @@ section("getStubConfig is total");
 /* ------------------------------------------------------------------ */
 section("picker registration");
 {
-  const { window: win, defined } = load();
+  const { window: win, registry } = load();
   const entry = win.customCards.find((c) => c.type === "plant-card");
   assert.ok(entry, "not registered in window.customCards");
   assert.equal(entry.name, "Plant Card");
   ok(`registered as "${entry.name}"`);
-  assert.ok(defined.has("plant-card") && defined.has("plant-card-editor"));
+  assert.ok(registry.get("plant-card") && registry.get("plant-card-editor"));
   ok("both custom elements defined");
 }
 
@@ -315,4 +345,70 @@ section("time helpers");
   ok("status thresholds: never=overdue, 1d=ok, 6.9d=soon, 7d=overdue");
 }
 
-console.log(`\n${passed} card assertions passed`);
+/* ------------------------------------------------------------------ *
+ * Regression: "Custom element not found: plant-card"
+ *
+ * index.html imports this module in parallel with app.js. app.js installs
+ * the scoped-custom-element-registry polyfill, which REPLACES
+ * window.customElements and window.HTMLElement outright — no fallback to
+ * the native registry. Being far smaller than app.js, this module normally
+ * wins the race, so defining on load put the card in the registry that was
+ * about to be thrown away: defined, but invisible to the card picker.
+ * ------------------------------------------------------------------ */
+(async () => {
+  section("registers into the registry Home Assistant ends up with");
+
+  const { ctx, window: win, registry: nativeRegistry } = load({
+    frontendReady: false,
+  });
+
+  assert.equal(nativeRegistry.get("plant-card"), undefined);
+  assert.ok(
+    !(win.customCards || []).some((c) => c.type === "plant-card"),
+    "picker entry must not appear before the element is defined"
+  );
+  ok("waits while the frontend is still booting, leaving no orphan tile");
+
+  // Simulate app.js installing the polyfill.
+  const patchedHTMLElement = class {
+    appendChild() {}
+  };
+  const haRegistry = makeRegistry(["home-assistant", "ha-card"]);
+  ctx.HTMLElement = patchedHTMLElement;
+  ctx.customElements = haRegistry;
+
+  await sleep(300);
+
+  const cls = haRegistry.get("plant-card");
+  assert.ok(cls, "card never registered after the frontend became ready");
+  ok("registers as soon as Home Assistant's own elements appear");
+
+  assert.ok(haRegistry.get("plant-card-editor"), "editor not registered");
+  ok("editor registered in the same registry");
+
+  assert.equal(
+    nativeRegistry.get("plant-card"),
+    undefined,
+    "must not define into the registry that gets discarded"
+  );
+  ok("never touches the discarded native registry");
+
+  assert.equal(
+    Object.getPrototypeOf(cls),
+    patchedHTMLElement,
+    "class was bound to the pre-polyfill HTMLElement"
+  );
+  ok("class extends the patched HTMLElement, not the original");
+
+  assert.ok(win.customCards.some((c) => c.type === "plant-card"));
+  ok("picker entry appears together with the definition");
+
+  assert.doesNotThrow(() => ctx.__t.register(), "register() is not idempotent");
+  assert.equal(
+    win.customCards.filter((c) => c.type === "plant-card").length,
+    1
+  );
+  ok("register() can be called again safely");
+
+  console.log(`\n${passed} card assertions passed`);
+})();

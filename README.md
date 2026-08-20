@@ -119,7 +119,12 @@ reloads.
 
 ## "Plant Card" is not in the card picker
 
-Work through these in order — the first two catch almost every case.
+If the tile is present but spins forever, or the console shows
+`Custom element not found: plant-card`, update to **v1.2.2 or later** — that
+was a bug in this card, fixed by registering after the frontend has finished
+booting. Restart and hard-refresh afterwards.
+
+Otherwise work through these in order — the first two catch almost every case.
 
 1. **Add a plant first.** The card is registered by the integration, and Home
    Assistant only starts an integration once it has at least one entry. Until
