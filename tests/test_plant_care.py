@@ -211,3 +211,87 @@ async def test_unload(hass):
     entry = await _setup(hass)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_history_records_each_care_event(hass, freezer):
+    """Every logged event is kept, newest first."""
+    await _setup(hass)
+
+    for moment in (
+        "2026-08-01T09:00:00+00:00",
+        "2026-08-08T09:00:00+00:00",
+        "2026-08-15T09:00:00+00:00",
+    ):
+        freezer.move_to(moment)
+        await _press(hass, "on", moment)
+
+    history = hass.states.get("sensor.monstera_plant").attributes["watering_history"]
+    assert len(history) == 3
+    assert history == sorted(history, reverse=True), "history must be newest first"
+    assert history[0].startswith("2026-08-15")
+    assert history[-1].startswith("2026-08-01")
+
+
+async def test_history_is_capped(hass, freezer):
+    """History does not grow without bound."""
+    from custom_components.plant_care.const import HISTORY_LIMIT
+
+    await _setup(hass)
+    for day in range(1, HISTORY_LIMIT + 5):
+        moment = f"2026-08-{day:02d}T09:00:00+00:00"
+        freezer.move_to(moment)
+        await _press(hass, "on", moment)
+
+    history = hass.states.get("sensor.monstera_plant").attributes["watering_history"]
+    assert len(history) == HISTORY_LIMIT
+    assert history[0].startswith(f"2026-08-{HISTORY_LIMIT + 4:02d}")
+
+
+async def test_backdated_care_is_sorted_into_history(hass, freezer):
+    """Setting the datetime entity to a past moment inserts, not appends."""
+    freezer.move_to("2026-08-15T09:00:00+00:00")
+    await _setup(hass)
+    await _press(hass, "on", "2026-08-15T09:00:00+00:00")
+
+    await hass.services.async_call(
+        "datetime",
+        "set_value",
+        {
+            "entity_id": "datetime.monstera_last_watered",
+            "datetime": "2026-08-10 08:00:00",
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    history = hass.states.get("sensor.monstera_plant").attributes["watering_history"]
+    assert len(history) == 2
+    assert history == sorted(history, reverse=True)
+
+
+async def test_next_due_follows_the_interval(hass, freezer):
+    """Next due is the last care plus the interval."""
+    freezer.move_to("2026-08-15T09:00:00+00:00")
+    await _setup(hass)
+    await _press(hass, "on", "2026-08-15T09:00:00+00:00")
+
+    attrs = hass.states.get("sensor.monstera_plant").attributes
+    assert attrs["next_water_due"].startswith("2026-08-22")  # +7 days
+    assert attrs["next_fertilize_due"] is None  # never fertilized
+
+
+async def test_history_survives_reload(hass, freezer):
+    """History is persisted with the rest of the care state."""
+    entry = await _setup(hass)
+    for moment in ("2026-08-01T09:00:00+00:00", "2026-08-08T09:00:00+00:00"):
+        freezer.move_to(moment)
+        await _press(hass, "on", moment)
+
+    before = hass.states.get("sensor.monstera_plant").attributes["watering_history"]
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert (
+        hass.states.get("sensor.monstera_plant").attributes["watering_history"]
+        == before
+    )

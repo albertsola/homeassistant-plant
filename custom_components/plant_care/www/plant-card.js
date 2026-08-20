@@ -14,7 +14,7 @@
  * framework, so it keeps working across Home Assistant frontend releases.
  */
 
-const CARD_VERSION = "1.2.2";
+const CARD_VERSION = "1.3.0";
 
 console.info(
   `%c PLANT-CARD %c ${CARD_VERSION} `,
@@ -36,6 +36,8 @@ const DEFAULTS = {
   confirm: true,
   tap_to_log: true,
   show_progress: true,
+  show_details: true,
+  history_length: 5,
 };
 
 /** Map a Plant Care summary entity's attributes onto card config. */
@@ -103,6 +105,28 @@ function relativeTime(stamp, language) {
   if (abs < 86400 * 30) return fmt.format(-Math.round(seconds / 86400), "day");
   if (abs < 86400 * 365) return fmt.format(-Math.round(seconds / (86400 * 30)), "month");
   return fmt.format(-Math.round(seconds / (86400 * 365)), "year");
+}
+
+/** "15 Aug 2026, 09:12", in the user's locale. */
+function formatDateTime(stamp, language) {
+  if (stamp == null) return "never";
+  try {
+    return new Intl.DateTimeFormat(language || "en", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(stamp * 1000));
+  } catch (_err) {
+    return new Date(stamp * 1000).toLocaleString();
+  }
+}
+
+/** Safe to drop into an HTML attribute. */
+function escapeAttr(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function statusOf(elapsedDays, intervalDays) {
@@ -204,6 +228,17 @@ const EDITOR_SCHEMA = [
           { name: "fertilize_label", selector: { text: {} } },
         ],
       },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "show_details", selector: { boolean: {} } },
+          {
+            name: "history_length",
+            selector: { number: { min: 1, max: 10, step: 1, mode: "box" } },
+          },
+        ],
+      },
     ],
   },
 ];
@@ -226,6 +261,8 @@ const EDITOR_LABELS = {
   show_progress: "Show progress bars",
   water_label: "Watering label",
   fertilize_label: "Fertilizing label",
+  show_details: "Show the care details button",
+  history_length: "Care events to list",
 };
 
 const EDITOR_HELPERS = {
@@ -327,8 +364,22 @@ function buildClasses() {
           water: attrs.last_watered || null,
           fertilize: attrs.last_fertilized || null,
         };
+        this._hubHistory = {
+          water: Array.isArray(attrs.watering_history)
+            ? attrs.watering_history
+            : null,
+          fertilize: Array.isArray(attrs.fertilizing_history)
+            ? attrs.fertilizing_history
+            : null,
+        };
+        this._hubDue = {
+          water: attrs.next_water_due || null,
+          fertilize: attrs.next_fertilize_due || null,
+        };
       } else {
         this._hubStamps = null;
+        this._hubHistory = null;
+        this._hubDue = null;
       }
 
       return { ...DEFAULTS, ...fromHub, ...user };
@@ -340,7 +391,8 @@ function buildClasses() {
     }
 
     getCardSize() {
-      return this._config && this._sensorEntities().length ? 3 : 2;
+      const base = this._config && this._sensorEntities().length ? 3 : 2;
+      return this._expanded ? base + 4 : base;
     }
 
     _sensorEntities(config) {
@@ -473,6 +525,86 @@ function buildClasses() {
             color: var(--state-icon-color, var(--secondary-text-color));
           }
           .sensor.stale { opacity: 0.45; }
+          .toggle {
+            margin-left: auto;
+            flex: 0 0 auto;
+            background: none;
+            border: none;
+            padding: 6px;
+            border-radius: 50%;
+            cursor: pointer;
+            color: var(--secondary-text-color);
+            display: flex;
+            align-items: center;
+          }
+          .toggle:hover { background: var(--secondary-background-color); }
+          .toggle ha-icon { --mdc-icon-size: 22px; }
+          .details {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding-top: 12px;
+            border-top: 1px solid var(--divider-color);
+          }
+          .details[hidden] { display: none; }
+          .detail > header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: var(--primary-text-color);
+            margin-bottom: 6px;
+          }
+          .detail > header ha-icon { --mdc-icon-size: 18px; }
+          .detail > header .icon {
+            margin-left: auto;
+            background: none;
+            border: none;
+            padding: 2px;
+            cursor: pointer;
+            color: var(--secondary-text-color);
+            display: flex;
+          }
+          .detail > header .icon:hover { color: var(--primary-color); }
+          .detail dl {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 2px 12px;
+            margin: 0;
+            font-size: 0.875rem;
+          }
+          .detail dt { color: var(--secondary-text-color); }
+          .detail dd {
+            margin: 0;
+            color: var(--primary-text-color);
+            text-align: right;
+          }
+          .history { margin-top: 8px; }
+          .history .caption {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--secondary-text-color);
+            margin-bottom: 4px;
+          }
+          .history ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+          }
+          .history li {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 0.85rem;
+            color: var(--primary-text-color);
+          }
+          .history li span:last-child { color: var(--secondary-text-color); }
+          .empty { font-size: 0.85rem; color: var(--secondary-text-color); }
         </style>
         <ha-card>
           <div class="header">
@@ -481,6 +613,12 @@ function buildClasses() {
               <div class="title" id="title"></div>
               <div class="subtitle" id="subtitle"></div>
             </div>
+            ${
+              cfg.show_details
+                ? `<button class="toggle" id="toggle" aria-expanded="false"
+                     title="Care details"><ha-icon icon="mdi:chevron-down"></ha-icon></button>`
+                : ""
+            }
           </div>
           <div class="care">
             <div class="row" id="row-water">
@@ -497,6 +635,7 @@ function buildClasses() {
             </div>
           </div>
           ${sensors.length ? `<div class="sensors" id="sensors"></div>` : ""}
+          ${cfg.show_details ? `<div class="details" id="details" hidden></div>` : ""}
         </ha-card>
       `;
 
@@ -521,6 +660,8 @@ function buildClasses() {
           },
         },
         sensors: $("sensors"),
+        toggle: $("toggle"),
+        details: $("details"),
       };
 
       if (!cfg.last_fertilized && !(this._hubStamps && this._hubStamps.fertilize)) {
@@ -533,6 +674,27 @@ function buildClasses() {
           row.classList.add("tappable");
           row.addEventListener("click", () => this._onCareTap(kind));
         }
+      }
+
+      if (this._el.toggle) {
+        this._el.toggle.addEventListener("click", () => {
+          this._expanded = !this._expanded;
+          this._paint();
+        });
+      }
+
+      if (this._el.details) {
+        // Delegated: the panel's contents are re-rendered on every repaint.
+        this._el.details.addEventListener("click", (event) => {
+          const target =
+            event.target && event.target.closest
+              ? event.target.closest("[data-more-info]")
+              : null;
+          if (!target) return;
+          fireEvent(this, "hass-more-info", {
+            entityId: target.getAttribute("data-more-info"),
+          });
+        });
       }
 
       if (sensors.length) {
@@ -650,6 +812,105 @@ function buildClasses() {
           s.text.textContent = missing ? "—" : this._formatState(stateObj);
         }
       }
+
+      if (this._el.toggle) {
+        const open = Boolean(this._expanded);
+        this._el.toggle.setAttribute("aria-expanded", String(open));
+        const chevron = this._el.toggle.firstElementChild;
+        if (chevron) {
+          chevron.setAttribute("icon", open ? "mdi:chevron-up" : "mdi:chevron-down");
+        }
+      }
+
+      if (this._el.details) {
+        this._el.details.hidden = !this._expanded;
+        // Only worth rendering while it is on screen.
+        if (this._expanded) this._paintDetails(care, lang);
+      }
+    }
+
+    /** Render the expanded panel: exact dates, next due, and the care log. */
+    _paintDetails(care, lang) {
+      this._el.details.innerHTML = care
+        .filter((item) => item.entity || this._careHistory(item.kind))
+        .map((item) => this._careDetailHtml(item, lang))
+        .join("");
+    }
+
+    _careHistory(kind) {
+      const history = this._hubHistory ? this._hubHistory[kind] : null;
+      return Array.isArray(history) && history.length ? history : null;
+    }
+
+    _careDetailHtml(item, lang) {
+      const cfg = this._config;
+      const kind = item.kind;
+
+      const fallbackIso = this._hubStamps ? this._hubStamps[kind] : null;
+      const stateObj = item.entity ? this._hass.states[item.entity] : undefined;
+      const stamp = stampOf(stateObj) ?? isoStamp(fallbackIso);
+
+      const dueIso = this._hubDue ? this._hubDue[kind] : null;
+      const dueStamp =
+        isoStamp(dueIso) ??
+        (stamp != null && item.interval ? stamp + item.interval * 86400 : null);
+
+      const rows = [
+        ["Last", stamp == null ? "never" : formatDateTime(stamp, lang)],
+        [
+          "Next due",
+          dueStamp == null
+            ? "—"
+            : `${formatDateTime(dueStamp, lang)} · ${
+                dueStamp * 1000 < Date.now()
+                  ? "overdue"
+                  : relativeTime(dueStamp, lang)
+              }`,
+        ],
+      ];
+      if (item.interval) rows.push(["Every", `${item.interval} days`]);
+
+      const history = this._careHistory(kind);
+      // One entry says nothing the "Last" row does not.
+      const log =
+        history && history.length > 1
+          ? history.slice(0, cfg.history_length).map((iso) => {
+              const at = isoStamp(iso);
+              return `<li><span>${formatDateTime(at, lang)}</span><span>${relativeTime(
+                at,
+                lang
+              )}</span></li>`;
+            })
+          : null;
+
+      return `
+        <section class="detail">
+          <header>
+            <ha-icon icon="${kind === "water" ? "mdi:watering-can" : "mdi:leaf"}"></ha-icon>
+            <span>${item.label}</span>
+            ${
+              item.entity
+                ? `<button class="icon" data-more-info="${escapeAttr(
+                    item.entity
+                  )}" title="Open entity"><ha-icon icon="mdi:open-in-new"></ha-icon></button>`
+                : ""
+            }
+          </header>
+          <dl>
+            ${rows
+              .map(([term, value]) => `<dt>${term}</dt><dd>${value}</dd>`)
+              .join("")}
+          </dl>
+          ${
+            log
+              ? `<div class="history">
+                   <div class="caption">Recent</div>
+                   <ul>${log.join("")}</ul>
+                 </div>`
+              : ""
+          }
+        </section>
+      `;
     }
 
     _formatState(stateObj) {

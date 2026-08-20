@@ -45,6 +45,13 @@ CARE_FERTILIZE = "fertilize"
 
 KEY_LAST_WATERED = "last_watered"
 KEY_LAST_FERTILIZED = "last_fertilized"
+KEY_WATER_HISTORY = "water_history"
+KEY_FERTILIZE_HISTORY = "fertilize_history"
+
+# How many past care events to keep per plant. Enough for the card's detail
+# panel and a sense of rhythm, small enough to stay out of the way in state
+# attributes.
+HISTORY_LIMIT = 10
 
 # Buttons disagree on what they call a press. Treat these as equivalent so the
 # integration works out of the box with most remotes.
@@ -57,7 +64,7 @@ STORAGE_VERSION = 1
 
 CARD_URL_BASE = "/plant_care"
 CARD_FILENAME = "plant-card.js"
-CARD_VERSION = "1.2.2"
+CARD_VERSION = "1.3.0"
 
 STATUS_OK = "ok"
 STATUS_NEEDS_WATER = "needs_water"

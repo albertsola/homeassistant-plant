@@ -90,11 +90,33 @@ Anything set explicitly still wins:
 | `tap_to_log` | bool | `true` | Tapping a care row logs that care event. |
 | `confirm` | bool | `true` | Require a second tap within 4 s before logging. |
 | `show_progress` | bool | `true` | Thin bar showing elapsed time towards the interval. |
+| `show_details` | bool | `true` | Show the ⌄ button that expands the care details panel. |
+| `history_length` | number | `5` | How many past care events the panel lists. |
 | `water_script` | `script.x` | – | Call this instead of writing the timestamp directly. |
 | `fertilize_script` | `script.x` | – | Same, for fertilizer. |
 
 Relative times are localized with the frontend's language. Tapping a sensor
 opens its more-info dialog. More examples in `lovelace-example.yaml`.
+
+### Care details
+
+The ⌄ button in the card's top-right expands a panel with the detail the
+one-line summary leaves out, for watering and fertilizing each:
+
+| Row | Example |
+| --- | --- |
+| Last | `15 Aug 2026, 09:12` — the exact moment, not "5 days ago" |
+| Next due | `22 Aug 2026, 09:12 · in 2 days`, or `overdue` |
+| Every | `7 days` |
+| Recent | The last few care events, each with its date and how long ago |
+
+Each section also links through to its `datetime` entity, where Home
+Assistant's own history and logbook live.
+
+The log comes from the integration, which keeps the last 10 events per care
+type — so it survives restarts and is not limited by recorder retention. A
+card pointed at plain `input_datetime` helpers still shows the dates and the
+next due date, just no log.
 
 ## Entities
 
@@ -102,7 +124,7 @@ Each plant becomes one device:
 
 | Entity | Purpose |
 | --- | --- |
-| `sensor.<plant>_plant` | Summary: `ok` / `needs_water` / `needs_fertilizer` / `needs_both`, with everything the card needs in its attributes. |
+| `sensor.<plant>_plant` | Summary: `ok` / `needs_water` / `needs_fertilizer` / `needs_both`. Its attributes carry everything the card needs, including `watering_history`, `fertilizing_history`, `next_water_due` and `next_fertilize_due`. |
 | `datetime.<plant>_last_watered` | When it was last watered. Settable, so care can be backdated. |
 | `datetime.<plant>_last_fertilized` | When it was last fertilized. |
 | `sensor.<plant>_days_since_watered` | Days elapsed — graphable, usable in automations. |

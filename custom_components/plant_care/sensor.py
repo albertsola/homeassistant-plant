@@ -137,6 +137,19 @@ class PlantCareSummary(PlantCareEntity, SensorEntity):
             "days_since_fertilized": _round(data.days_since_fertilized),
             "water_interval": data.water_interval,
             "fertilize_interval": data.fertilize_interval,
+            "next_water_due": (
+                data.next_water_due.isoformat() if data.next_water_due else None
+            ),
+            "next_fertilize_due": (
+                data.next_fertilize_due.isoformat()
+                if data.next_fertilize_due
+                else None
+            ),
+            # Newest first. The card's detail panel reads these.
+            "watering_history": [m.isoformat() for m in data.water_history],
+            "fertilizing_history": [
+                m.isoformat() for m in data.fertilize_history
+            ],
             "needs_water": data.needs_water,
             "needs_fertilizer": data.needs_fertilizer,
             "last_watered_entity": self._care_entity_id(KEY_LAST_WATERED),

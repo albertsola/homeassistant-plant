@@ -345,6 +345,149 @@ section("time helpers");
   ok("status thresholds: never=overdue, 1d=ok, 6.9d=soon, 7d=overdue");
 }
 
+/* ------------------------------------------------------------------ */
+section("care details panel");
+{
+  const { PlantCard } = load();
+  const iso = (days) =>
+    new Date(Date.now() - days * 86400 * 1000).toISOString();
+  const future = (days) =>
+    new Date(Date.now() + days * 86400 * 1000).toISOString();
+
+  const hass = {
+    locale: { language: "en" },
+    states: {
+      "sensor.monstera_plant": {
+        state: "ok",
+        attributes: {
+          plant_name: "Monstera",
+          last_watered: iso(2),
+          last_fertilized: iso(9),
+          last_watered_entity: "datetime.monstera_last_watered",
+          last_fertilized_entity: "datetime.monstera_last_fertilized",
+          water_interval: 7,
+          fertilize_interval: 30,
+          next_water_due: future(5),
+          next_fertilize_due: future(21),
+          watering_history: [iso(2), iso(9), iso(16), iso(23)],
+          fertilizing_history: [iso(9)],
+        },
+      },
+      "datetime.monstera_last_watered": { state: iso(2), attributes: {} },
+      "datetime.monstera_last_fertilized": { state: iso(9), attributes: {} },
+    },
+  };
+
+  const build = (config) => {
+    const card = Object.create(PlantCard.prototype);
+    card.setConfig({ entity: "sensor.monstera_plant", ...config });
+    card._hass = hass;
+    card._config = card._resolve();
+    return card;
+  };
+
+  const waterItem = {
+    kind: "water",
+    entity: "datetime.monstera_last_watered",
+    interval: 7,
+    label: "Watered",
+  };
+
+  let card = build({ history_length: 3 });
+  let html = card._careDetailHtml(waterItem, "en");
+
+  assert.ok(html.includes("<dt>Last</dt>"), "no Last row");
+  assert.ok(html.includes("<dt>Next due</dt>"), "no Next due row");
+  assert.ok(html.includes("<dd>7 days</dd>"), "interval missing");
+  ok("shows last, next due and interval");
+
+  assert.ok(/in 5 days/.test(html), `next due should read as future: ${html}`);
+  ok("next due reads as a future date");
+
+  const late = Object.create(PlantCard.prototype);
+  late.setConfig({ last_watered: "input_datetime.late" });
+  late._hass = {
+    locale: { language: "en" },
+    states: { "input_datetime.late": { state: iso(10), attributes: {} } },
+  };
+  late._config = late._resolve();
+  const overdue = late._careDetailHtml(
+    { kind: "water", entity: "input_datetime.late", interval: 7, label: "Watered" },
+    "en"
+  );
+  assert.ok(overdue.includes("overdue"), `past due should say overdue: ${overdue}`);
+  assert.ok(!/ago<\/dd>/.test(overdue), "past due should not read as 'x ago'");
+  ok("a past due date reads as overdue, not '3 days ago'");
+
+  assert.ok(html.includes("Recent"), "no history section");
+  assert.equal((html.match(/<li>/g) || []).length, 3, "history_length ignored");
+  ok("lists history, capped by history_length");
+
+  assert.ok(
+    html.includes('data-more-info="datetime.monstera_last_watered"'),
+    "no more-info affordance"
+  );
+  ok("offers a link to the underlying entity");
+
+  // A single event says nothing the Last row does not.
+  const fertilizeItem = {
+    kind: "fertilize",
+    entity: "datetime.monstera_last_fertilized",
+    interval: 30,
+    label: "Fertilized",
+  };
+  html = card._careDetailHtml(fertilizeItem, "en");
+  assert.ok(!html.includes("Recent"), "single-entry history should be hidden");
+  ok("hides the log when there is only one event");
+
+  // Without a summary entity there is no history, but dates still work.
+  const plain = Object.create(PlantCard.prototype);
+  plain.setConfig({ last_watered: "input_datetime.x" });
+  plain._hass = {
+    locale: { language: "en" },
+    states: { "input_datetime.x": { state: iso(3), attributes: {} } },
+  };
+  plain._config = plain._resolve();
+  html = plain._careDetailHtml(
+    { kind: "water", entity: "input_datetime.x", interval: 7, label: "Watered" },
+    "en"
+  );
+  assert.ok(html.includes("<dt>Next due</dt>"), "next due must be computed");
+  assert.ok(!html.includes("Recent"), "no history without a summary entity");
+  ok("degrades gracefully for input_datetime setups");
+
+  // Never logged.
+  const fresh = Object.create(PlantCard.prototype);
+  fresh.setConfig({ last_watered: "input_datetime.x" });
+  fresh._hass = { locale: { language: "en" }, states: {} };
+  fresh._config = fresh._resolve();
+  html = fresh._careDetailHtml(
+    { kind: "water", entity: "input_datetime.x", interval: 7, label: "Watered" },
+    "en"
+  );
+  assert.ok(html.includes("never"), "should say never");
+  assert.ok(html.includes("<dd>—</dd>"), "next due should be unknown");
+  ok("handles a plant that was never watered");
+
+  // Entity ids land in an HTML attribute.
+  const { PlantCard: PC } = load();
+  const hostile = Object.create(PC.prototype);
+  hostile.setConfig({ last_watered: 'input_datetime.x"><img src=x onerror=1>' });
+  hostile._hass = { locale: { language: "en" }, states: {} };
+  hostile._config = hostile._resolve();
+  html = hostile._careDetailHtml(
+    {
+      kind: "water",
+      entity: 'input_datetime.x"><img src=x onerror=1>',
+      interval: 7,
+      label: "Watered",
+    },
+    "en"
+  );
+  assert.ok(!html.includes("<img"), "entity id was not escaped");
+  ok("escapes entity ids before interpolating them");
+}
+
 /* ------------------------------------------------------------------ *
  * Regression: "Custom element not found: plant-card"
  *

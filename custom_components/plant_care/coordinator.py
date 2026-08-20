@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -29,8 +29,11 @@ from .const import (
     DEFAULT_WATER_INTERVAL,
     DOMAIN,
     EVENT_ALIASES,
+    HISTORY_LIMIT,
+    KEY_FERTILIZE_HISTORY,
     KEY_LAST_FERTILIZED,
     KEY_LAST_WATERED,
+    KEY_WATER_HISTORY,
     LOGGER,
     STORAGE_VERSION,
 )
@@ -44,6 +47,8 @@ class PlantCareData:
     last_fertilized: datetime | None
     water_interval: float
     fertilize_interval: float
+    water_history: list[datetime] = field(default_factory=list)
+    fertilize_history: list[datetime] = field(default_factory=list)
 
     @staticmethod
     def _elapsed(moment: datetime | None) -> float | None:
@@ -60,6 +65,20 @@ class PlantCareData:
     def days_since_fertilized(self) -> float | None:
         """Days since the plant was last fertilized."""
         return self._elapsed(self.last_fertilized)
+
+    @property
+    def next_water_due(self) -> datetime | None:
+        """When watering falls due, or None if it never happened."""
+        if self.last_watered is None:
+            return None
+        return self.last_watered + timedelta(days=self.water_interval)
+
+    @property
+    def next_fertilize_due(self) -> datetime | None:
+        """When fertilizing falls due, or None if it never happened."""
+        if self.last_fertilized is None:
+            return None
+        return self.last_fertilized + timedelta(days=self.fertilize_interval)
 
     @property
     def needs_water(self) -> bool:
@@ -93,6 +112,8 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
         )
         self._last_watered: datetime | None = None
         self._last_fertilized: datetime | None = None
+        self._water_history: list[datetime] = []
+        self._fertilize_history: list[datetime] = []
         self._water_interval = DEFAULT_WATER_INTERVAL
         self._fertilize_interval = DEFAULT_FERTILIZE_INTERVAL
 
@@ -120,6 +141,14 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
 
         self._last_watered = _parse(stored.get(KEY_LAST_WATERED))
         self._last_fertilized = _parse(stored.get(KEY_LAST_FERTILIZED))
+        # History was added after the first release: seed it from the single
+        # timestamp those installs already have, so the panel is not empty.
+        self._water_history = _parse_history(
+            stored.get(KEY_WATER_HISTORY), self._last_watered
+        )
+        self._fertilize_history = _parse_history(
+            stored.get(KEY_FERTILIZE_HISTORY), self._last_fertilized
+        )
         self._water_interval = float(
             stored.get(CONF_WATER_INTERVAL, DEFAULT_WATER_INTERVAL)
         )
@@ -137,6 +166,8 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
             last_fertilized=self._last_fertilized,
             water_interval=self._water_interval,
             fertilize_interval=self._fertilize_interval,
+            water_history=list(self._water_history),
+            fertilize_history=list(self._fertilize_history),
         )
 
     async def _async_save(self) -> None:
@@ -144,6 +175,8 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
             {
                 KEY_LAST_WATERED: _dump(self._last_watered),
                 KEY_LAST_FERTILIZED: _dump(self._last_fertilized),
+                KEY_WATER_HISTORY: [_dump(m) for m in self._water_history],
+                KEY_FERTILIZE_HISTORY: [_dump(m) for m in self._fertilize_history],
                 CONF_WATER_INTERVAL: self._water_interval,
                 CONF_FERTILIZE_INTERVAL: self._fertilize_interval,
             }
@@ -154,8 +187,12 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
         moment = dt_util.as_utc(when) if when else dt_util.utcnow()
         if care == CARE_WATER:
             self._last_watered = moment
+            self._water_history = _add_to_history(self._water_history, moment)
         else:
             self._last_fertilized = moment
+            self._fertilize_history = _add_to_history(
+                self._fertilize_history, moment
+            )
         await self._async_save()
         self.async_set_updated_data(self._snapshot())
 
@@ -238,6 +275,27 @@ class PlantCareCoordinator(DataUpdateCoordinator[PlantCareData]):
             if value in EVENT_ALIASES.get(configured, frozenset()):
                 return care
         return None
+
+
+def _add_to_history(
+    history: list[datetime], moment: datetime
+) -> list[datetime]:
+    """Record an event, newest first, without duplicates.
+
+    Sorted rather than prepended because care can be backdated by setting the
+    datetime entity to a past moment.
+    """
+    moments = {moment, *history}
+    return sorted(moments, reverse=True)[:HISTORY_LIMIT]
+
+
+def _parse_history(raw: Any, fallback: datetime | None) -> list[datetime]:
+    """Read a stored history, falling back to a single known timestamp."""
+    if raw:
+        parsed = [m for m in (_parse(item) for item in raw) if m is not None]
+        if parsed:
+            return sorted(set(parsed), reverse=True)[:HISTORY_LIMIT]
+    return [fallback] if fallback else []
 
 
 def _parse(raw: Any) -> datetime | None:
