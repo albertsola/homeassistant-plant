@@ -51,8 +51,10 @@ but it loads the file a second time for nothing.
 
 ## The card
 
-Add it the normal way: **Add card → Plant Card**. It appears in the picker
-with a live preview and has a visual editor, so no YAML is needed. In YAML it
+Add it the normal way: **Add card → Plant Card** (in the *Custom cards*
+section). It appears in the picker with a live preview and has a visual
+editor, so no YAML is needed. Note that the card only shows up once at least
+one plant has been added, because that is what starts the integration. In YAML it
 is one line:
 
 ```yaml
@@ -113,6 +115,34 @@ Each plant becomes one device:
 
 Care history is persisted in HA's storage, so it survives restarts and
 reloads.
+
+## "Plant Card" is not in the card picker
+
+Work through these in order — the first two catch almost every case.
+
+1. **Add a plant first.** The card is registered by the integration, and Home
+   Assistant only starts an integration once it has at least one entry. Until
+   a plant exists under *Settings → Devices & Services → Plant Care*, the card
+   cannot appear. Add one, then reload the dashboard.
+2. **Restart Home Assistant, then hard-refresh the browser**
+   (`Ctrl`/`Cmd` + `Shift` + `R`). Installing a custom integration needs a
+   restart before HA will load it, and the frontend caches its module list.
+3. **Check the card is being served.** Open
+   `http://<your-ha>:8123/plant_care/plant-card.js` directly. You should see
+   JavaScript. A 404 means the integration is not set up — go back to step 1.
+   Anything else means the file is fine and the problem is in the browser.
+4. **Confirm HACS installed it as an integration.** If *Plant Care* does not
+   appear under *+ Add Integration* at all, HACS probably still has this
+   repository added with the old **Dashboard** category, which drops the files
+   in the wrong place. Remove it from HACS and re-add it as type
+   **Integration**.
+5. **Look in the right place in the picker.** Custom cards sit in a separate
+   collapsible *Custom cards* section at the bottom of the *Add card* dialog.
+   Searching `plant` finds it wherever it is.
+6. **Check the browser console** for errors mentioning `plant-card`. A
+   duplicate registration from an old manual resource used to break this;
+   remove `/local/plant-card.js` from *Settings → Dashboards → Resources* if
+   it is still there.
 
 ## Buttons
 
